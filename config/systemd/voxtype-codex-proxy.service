@@ -1,6 +1,6 @@
 [Unit]
 Description=Voxtype -> ChatGPT (Codex) transcribe proxy
-Documentation=https://github.com/REPLACE_ME/voxtype-codex-dictation
+Documentation=https://github.com/sicko7947/voxtype-codex-dictation
 PartOf=graphical-session.target
 After=graphical-session.target
 

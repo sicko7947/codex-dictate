@@ -160,6 +160,6 @@ Useful commands:
   journalctl --user -u voxtype-codex-proxy.service -f
   ./uninstall.sh                 # revert everything
 
-Switch back to a local GPU model anytime:
-  edit ~/.config/voxtype/config.toml -> mode = "local"; systemctl --user restart voxtype.service
+Switch between ChatGPT (remote) and a local model anytime:
+  ./switch-mode.sh               # toggle remote <-> local (also: remote|local|status)
 EOF

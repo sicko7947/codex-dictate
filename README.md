@@ -1,5 +1,7 @@
 # voxtype-codex-dictation
 
+> 中文说明：[README.zh.md](README.zh.md)
+
 Use **[Voxtype](https://voxtype.io)** for system-wide push-to-talk dictation on Linux,
 but send the audio to **ChatGPT's transcription backend** (the same one the Codex
 desktop app uses) instead of running a local Whisper model.
@@ -126,9 +128,18 @@ win in this repo.
 | `VOXTYPE_PROXY_NO_NORMALIZE` | unset | set to `1` to disable loudness normalization |
 | `VOXTYPE_PROXY_DEBUG_DIR` | unset | set to a dir (e.g. `/tmp`) to dump the exact audio sent, for debugging |
 
-**Voxtype** (`~/.config/voxtype/config.toml`): everything standard. To go back to a
-local GPU model, set `mode = "local"` (download one with `voxtype setup model`),
-then `systemctl --user restart voxtype.service`.
+**Voxtype** (`~/.config/voxtype/config.toml`): everything standard.
+
+### Switching backends (ChatGPT ↔ local model)
+Default is **remote** (ChatGPT). To switch to a local, offline Whisper model and
+back, use the bundled script — it edits the `mode` line and restarts the services:
+
+```bash
+./switch-mode.sh            # show current mode, then toggle remote ↔ local
+./switch-mode.sh remote     # force ChatGPT remote
+./switch-mode.sh local      # force local model (download one: voxtype setup model)
+./switch-mode.sh status     # just print the current mode
+```
 
 **Mic tip:** a wired/USB mic beats a Bluetooth headset for dictation by a wide
 margin — Bluetooth mics fall back to a narrowband, compressed profile. If accuracy
