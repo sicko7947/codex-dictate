@@ -18,7 +18,48 @@
         把文字打出来        {"text": "..."}         从 ~/.codex/auth.json 读取并加上鉴权
 ```
 
+**这个代理是跨平台共用的**；不同的只是「采集端」（热键 + 录音 + 输出）：
+
+| 平台 | 采集端 | 热键 | 状态 |
+|------|--------|------|------|
+| **Linux**（Wayland/Hyprland + systemd） | [Voxtype](https://voxtype.io) 守护进程 | SUPER+CTRL+X 切换 · **F9 按住** | ✅ 支持 |
+| **macOS**（12+） | 仓库自带的 `voxtype-mac`（Swift 单文件） | **按住 fn** | ✅ 支持 |
+| **Windows** | — | — | ❌ 不支持 |
+
+- **Linux** 用户：继续往下看。
+- **macOS** 用户：完整步骤见 **[mac/README.md](mac/README.md)**；简版见下面的
+  [macOS 快速开始](#macos-快速开始)。
+
 ---
+
+## macOS 快速开始
+
+完整说明（含权限授予）在 **[mac/README.md](mac/README.md)**。简版：
+
+```bash
+brew install go sox           # sox 负责录音；go 用来编译代理
+xcode-select --install        # 提供 swiftc（已装可跳过）
+
+git clone <这个仓库的地址> voxtype-codex-dictation
+cd voxtype-codex-dictation
+./mac/build.sh                # 把 proxy + voxtype-mac 编译进 ~/.local/bin
+./mac/install-agents.sh       # 可选：把两个程序装成登录后台代理
+```
+
+首次运行会弹出 **麦克风 / 输入监控 / 辅助功能** 三个权限——全部允许后重启客户端。
+之后 **按住 fn** 说话、松开，转写结果就粘贴到光标处。
+
+macOS 客户端做的事和 Linux 流程一一对应：监听**物理 fn 键**（keyCode 63 的
+`NSEvent` 全局监听）→ 按住时用 **`sox`** 录 16kHz 单声道 WAV → 松开后 POST 给同一个
+代理 → 把结果**粘贴**出来（写剪贴板 + Cmd+V，再还原原剪贴板）。不需要 Xcode 工程、
+不打 `.app` 包、不依赖 Hammerspoon/Karabiner——就一个 Swift 文件
+（`mac/voxtype-mac.swift`）编成单个二进制。
+
+---
+
+# Linux 安装
+
+下面都是 Linux 的内容（采集端用 Voxtype）。
 
 ## 为什么需要这个代理（一句话版）
 

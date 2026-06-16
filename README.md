@@ -1,62 +1,119 @@
 # voxtype-codex-dictation
 
+> System-wide **push-to-talk dictation** on **Linux and macOS**, transcribed by
+> **ChatGPT's backend** (the same one the Codex desktop app uses) — no local GPU
+> model, no OpenAI API key, no extra subscription.
+>
 > 中文说明：[README.zh.md](README.zh.md)
 
-Use **[Voxtype](https://voxtype.io)** for system-wide push-to-talk dictation on Linux,
-but send the audio to **ChatGPT's transcription backend** (the same one the Codex
-desktop app uses) instead of running a local Whisper model.
-
-You speak → Voxtype records → a tiny local proxy adds your ChatGPT login → ChatGPT
-transcribes → the text is typed at your cursor. No local GPU model, no OpenAI API
-key, no extra subscription — it reuses the ChatGPT login you already have via Codex.
+You speak → your OS records → a tiny local proxy adds your ChatGPT login → ChatGPT
+transcribes → the text lands at your cursor. It reuses the ChatGPT login you
+already have via Codex (`~/.codex/auth.json`).
 
 ```
-┌──────────┐   WAV (push-to-talk)   ┌─────────────────────┐   HTTPS + ChatGPT token   ┌────────────────────────┐
-│ Voxtype  │ ─────────────────────► │ voxtype-codex-proxy │ ────────────────────────► │ chatgpt.com            │
-│ (daemon) │   127.0.0.1:8377       │ (local Go binary)   │   browser UA + Bearer     │ /backend-api/transcribe │
-└──────────┘ ◄───────────────────── └─────────────────────┘ ◄──────────────────────── └────────────────────────┘
-        types text          {"text": "..."}            adds auth from ~/.codex/auth.json
+            WAV (push-to-talk)        ┌─────────────────────┐   HTTPS + ChatGPT token   ┌─────────────────────────┐
+ capture ─────────────────────────►  │ voxtype-codex-proxy │ ────────────────────────► │ chatgpt.com             │
+ client    127.0.0.1:8377            │ (local Go binary)   │   browser UA + Bearer     │ /backend-api/transcribe │
+        ◄─────────────────────────   └─────────────────────┘ ◄──────────────────────── └─────────────────────────┘
+   text at cursor          {"text": "..."}            adds auth from ~/.codex/auth.json
 ```
+
+The **proxy is shared across platforms**; only the *capture client* (hotkey + mic
++ paste) differs:
+
+| Platform | Capture client | Hotkey | Status |
+|----------|----------------|--------|--------|
+| **Linux** (Wayland/Hyprland + systemd) | [Voxtype](https://voxtype.io) daemon | SUPER+CTRL+X toggle · **F9 hold** | ✅ supported |
+| **macOS** (12+) | bundled `voxtype-mac` Swift binary | **fn hold** | ✅ supported |
+| **Windows** | — | — | ❌ not supported |
+
+- **Linux** → keep reading below, or jump to [Linux install](#linux-install).
+- **macOS** → see **[mac/README.md](mac/README.md)** for the full walkthrough; a
+  short version is in [macOS quick start](#macos-quick-start) below.
 
 ---
 
 ## Why the proxy exists (the short version)
 
-Voxtype's built-in "remote" mode can POST audio to any OpenAI-compatible
-`/v1/audio/transcriptions` endpoint — but it **can't add custom HTTP headers**.
-Talking to ChatGPT's backend needs two things Voxtype won't send:
+The capture clients can POST audio to any OpenAI-compatible
+`/v1/audio/transcriptions` endpoint — but they **can't add custom HTTP headers**.
+Talking to ChatGPT's backend needs two things they won't send:
 
 1. **Your ChatGPT auth** — a `Authorization: Bearer <token>` from `~/.codex/auth.json`.
 2. **A real browser `User-Agent`** — Cloudflare in front of `chatgpt.com` returns
    **403** to anything that looks like a bot (a bare `Mozilla/5.0` is *not* enough).
 
 So this repo ships a ~10 MB static Go binary that listens on `127.0.0.1:8377`,
-speaks the OpenAI multipart format Voxtype expects, and re-issues each request to
-ChatGPT with the right token + UA. It reads `~/.codex/auth.json` **fresh on every
-request**, so when Codex refreshes your token, the proxy picks it up automatically.
+speaks the OpenAI multipart format the clients expect, and re-issues each request
+to ChatGPT with the right token + UA. It reads `~/.codex/auth.json` **fresh on
+every request**, so when Codex refreshes your token, the proxy picks it up
+automatically.
 
 It also gently **normalizes loudness** (quiet/Bluetooth-mic recordings get boosted
-to a steady level), which measurably improves accuracy.
+to a steady level), which measurably improves accuracy. This logic is identical on
+both platforms — the proxy is `proxy/main.go`, built the same way everywhere.
 
 ---
 
-## Requirements
+## Prerequisites (both platforms)
+
+| Need | Why | Install |
+|------|-----|---------|
+| **Codex login (ChatGPT)** | provides `~/.codex/auth.json` | Codex desktop app, or `codex login` |
+| **Go** | builds the proxy | https://go.dev/dl · `brew install go` · `pacman -S go` |
+
+> You need an account that Codex/ChatGPT signs in (a ChatGPT Plus/Pro login works).
+> This does **not** use a paid OpenAI API key.
+
+Then follow your platform below.
+
+---
+
+# macOS quick start
+
+Full details + permissions in **[mac/README.md](mac/README.md)**. Short version:
+
+```bash
+brew install go sox           # sox records the mic; go builds the proxy
+xcode-select --install        # provides swiftc (skip if already installed)
+
+git clone <this-repo-url> voxtype-codex-dictation
+cd voxtype-codex-dictation
+./mac/build.sh                # builds proxy + voxtype-mac into ~/.local/bin
+./mac/install-agents.sh       # run both as login agents (optional)
+```
+
+First run prompts for **Microphone**, **Input Monitoring**, and **Accessibility** —
+approve all three, then restart the client. Now **hold fn**, speak, release: the
+transcript pastes at your cursor.
+
+What the macOS client does, mirroring the Linux flow:
+
+- watches the **physical fn key** (a global `NSEvent` monitor on keyCode 63),
+- records 16 kHz mono WAV with **`sox`** while held,
+- POSTs it to the same proxy on release,
+- **pastes** the result (clipboard + Cmd+V, original clipboard restored).
+
+No Xcode project, no `.app` bundle, no Hammerspoon/Karabiner — one Swift file
+(`mac/voxtype-mac.swift`) compiled to a single binary.
+
+---
+
+# Linux install
+
+Linux uses the [Voxtype](https://voxtype.io) daemon as the capture client.
+
+### Linux requirements
 
 | Need | Why | Install |
 |------|-----|---------|
 | **Linux + systemd + Wayland** | Voxtype targets Wayland/Hyprland | — |
 | **[Voxtype](https://voxtype.io)** | the dictation daemon | Omarchy: `omarchy-voxtype-install` · else see voxtype.io |
-| **Codex login (ChatGPT)** | provides `~/.codex/auth.json` | [Codex desktop app] or `codex login` |
-| **Go** | builds the proxy | `sudo pacman -S go` · or https://go.dev/dl |
-| **ffmpeg** *(optional)* | enables the install smoke-test | `sudo pacman -S ffmpeg` |
-| **jq** *(optional)* | validates your auth file | `sudo pacman -S jq` |
+| **wtype** *(Wayland)* or **ydotool** | types the transcript at the cursor | `pacman -S wtype` |
+| **ffmpeg** *(optional)* | enables the install smoke-test | `pacman -S ffmpeg` |
+| **jq** *(optional)* | validates your auth file | `pacman -S jq` |
 
-> You need an account that Codex/ChatGPT signs in (a ChatGPT Plus/Pro login works).
-> This does **not** use a paid OpenAI API key.
-
----
-
-## Install (the whole thing)
+### Install (the whole thing)
 
 ```bash
 git clone <this-repo-url> voxtype-codex-dictation
@@ -77,9 +134,7 @@ cd voxtype-codex-dictation
 
 Then just dictate (see keybindings below).
 
----
-
-## Using it (Hyprland keybindings)
+### Using it (Hyprland keybindings)
 
 | Key | Action |
 |-----|--------|
@@ -92,9 +147,7 @@ Then just dictate (see keybindings below).
 
 Speak a sentence, release, and the transcript is typed wherever your cursor is.
 
----
-
-## What got installed (every file)
+### What got installed (every file)
 
 | Path | What |
 |------|------|
@@ -107,28 +160,13 @@ Speak a sentence, release, and the transcript is typed wherever your cursor is.
 Nothing here contains a secret. Your ChatGPT token stays in `~/.codex/auth.json`
 and is read at runtime only.
 
-### The `--eager-processing` fix
+#### The `--eager-processing` fix
 Voxtype's `--eager-processing` transcribes audio **in chunks while you're still
 talking** (a latency trick for local Whisper). Over a remote backend each chunk
 becomes a **separate, context-free** HTTP request, so words get mangled at the
 chunk seams. The `20-no-eager.conf` drop-in removes that flag, so each utterance
 is sent as **one** request with full context. This is the single biggest accuracy
 win in this repo.
-
----
-
-## Configuration knobs
-
-**Proxy** (env vars in `voxtype-codex-proxy.service`):
-
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `VOXTYPE_PROXY_PORT` | `8377` | listen port (also update `remote_endpoint`) |
-| `VOXTYPE_PROXY_HOST` | `127.0.0.1` | listen address (keep it local!) |
-| `VOXTYPE_PROXY_NO_NORMALIZE` | unset | set to `1` to disable loudness normalization |
-| `VOXTYPE_PROXY_DEBUG_DIR` | unset | set to a dir (e.g. `/tmp`) to dump the exact audio sent, for debugging |
-
-**Voxtype** (`~/.config/voxtype/config.toml`): everything standard.
 
 ### Switching backends (ChatGPT ↔ local model)
 Default is **remote** (ChatGPT). To switch to a local, offline Whisper model and
@@ -141,46 +179,7 @@ back, use the bundled script — it edits the `mode` line and restarts the servi
 ./switch-mode.sh status     # just print the current mode
 ```
 
-**Mic tip:** a wired/USB mic beats a Bluetooth headset for dictation by a wide
-margin — Bluetooth mics fall back to a narrowband, compressed profile. If accuracy
-is poor, check your input device first (`pactl list short sources`).
-
----
-
-## Troubleshooting
-
-```bash
-# Is the proxy up?
-systemctl --user status voxtype-codex-proxy.service
-curl http://127.0.0.1:8377/            # -> {"status":"ok", ...}
-
-# Live logs
-journalctl --user -u voxtype-codex-proxy.service -f
-
-# See exactly what audio Voxtype is sending (then inspect with ffprobe/your ears)
-systemctl --user set-environment VOXTYPE_PROXY_DEBUG_DIR=/tmp   # or edit the unit
-```
-
-| Symptom | Likely cause / fix |
-|---------|--------------------|
-| **HTTP 403** on transcribe | ChatGPT token missing/expired, or Cloudflare. Make sure Codex is signed in (`codex login`); open the Codex app once to refresh. |
-| **HTTP 502** | proxy couldn't reach ChatGPT or read `~/.codex/auth.json`. Check the logs. |
-| **Garbled text at sentence seams** | `--eager-processing` still on — confirm `20-no-eager.conf` is installed and `systemctl --user daemon-reload && systemctl --user restart voxtype.service`. |
-| **Quiet / missed words** | Bluetooth mic, or input gain low. Use a wired mic; check `pactl`. |
-| **Nothing types** | needs `wtype` (Wayland) or `ydotool`. Install one. |
-
----
-
-## Token & refresh
-
-The proxy never stores or refreshes anything itself — it just reads
-`~/.codex/auth.json` on each request. Keep **Codex (desktop or CLI) installed and
-signed in**; it refreshes the token in the background. If you sign out of Codex,
-dictation will start returning 403/502 until you sign back in.
-
----
-
-## Uninstall
+### Uninstall (Linux)
 
 ```bash
 ./uninstall.sh
@@ -191,6 +190,70 @@ It leaves `~/.codex/auth.json` alone and does **not** re-download a local model
 (your `config.toml` still says `mode = "remote"` — flip it to `"local"` if you want
 local transcription back; a backup of your original config is at
 `~/.config/voxtype/config.toml.bak-*`).
+
+---
+
+## Configuration knobs
+
+**Proxy** (env vars — set in the systemd unit on Linux, or the launch agent plist
+on macOS):
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `VOXTYPE_PROXY_PORT` | `8377` | listen port (also update the client endpoint) |
+| `VOXTYPE_PROXY_HOST` | `127.0.0.1` | listen address (keep it local!) |
+| `VOXTYPE_PROXY_TIMEOUT` | `120` | upstream timeout (seconds) |
+| `VOXTYPE_PROXY_NO_NORMALIZE` | unset | set to `1` to disable loudness normalization |
+| `VOXTYPE_PROXY_DEBUG_DIR` | unset | set to a dir (e.g. `/tmp`) to dump the exact audio sent, for debugging |
+
+**macOS client** (`voxtype-mac`) env vars: `VOXTYPE_KEYCODE` (default `63` = fn),
+`VOXTYPE_LANG` (default `auto`), `VOXTYPE_PROXY_URL`, `VOXTYPE_SOX`. See
+[mac/README.md](mac/README.md).
+
+**Mic tip:** a wired/USB mic beats a Bluetooth headset for dictation by a wide
+margin — Bluetooth mics fall back to a narrowband, compressed profile. If accuracy
+is poor, check your input device first (Linux: `pactl list short sources`; macOS:
+System Settings → Sound → Input).
+
+---
+
+## Troubleshooting
+
+**Is the proxy up?** (both platforms)
+
+```bash
+curl http://127.0.0.1:8377/            # -> {"status":"ok", ...}
+```
+
+**Linux logs / debug:**
+
+```bash
+systemctl --user status voxtype-codex-proxy.service
+journalctl --user -u voxtype-codex-proxy.service -f
+systemctl --user set-environment VOXTYPE_PROXY_DEBUG_DIR=/tmp   # dump sent audio
+```
+
+**macOS logs:** `~/Library/Logs/io.voxtype.*.log` (when run as launch agents).
+
+| Symptom | Likely cause / fix |
+|---------|--------------------|
+| **HTTP 403** on transcribe | ChatGPT token missing/expired, or Cloudflare. Make sure Codex is signed in (`codex login`); open the Codex app once to refresh. |
+| **HTTP 502** | proxy couldn't reach ChatGPT or read `~/.codex/auth.json`. Check the logs. |
+| **(macOS) fn does nothing** | grant **Input Monitoring**; if you remapped fn in System Settings → Keyboard, set "Press 🌐 to" → **Do Nothing**, or use a different `VOXTYPE_KEYCODE`. |
+| **(macOS) nothing pastes** | grant **Accessibility** (needed to synthesize Cmd+V); restart the client. |
+| **(macOS) no audio** | grant **Microphone**; check `sox` is installed (`brew install sox`). |
+| **(Linux) garbled text at sentence seams** | `--eager-processing` still on — confirm `20-no-eager.conf` is installed and `systemctl --user daemon-reload && systemctl --user restart voxtype.service`. |
+| **(Linux) nothing types** | needs `wtype` (Wayland) or `ydotool`. Install one. |
+| **Quiet / missed words** | Bluetooth mic, or input gain low. Use a wired mic. |
+
+---
+
+## Token & refresh
+
+The proxy never stores or refreshes anything itself — it just reads
+`~/.codex/auth.json` on each request. Keep **Codex (desktop or CLI) installed and
+signed in**; it refreshes the token in the background. If you sign out of Codex,
+dictation will start returning 403/502 until you sign back in.
 
 ---
 
