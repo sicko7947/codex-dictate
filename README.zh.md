@@ -1,4 +1,4 @@
-# voxtype-codex-dictation（中文说明）
+# codex-dictate（中文说明）
 
 > English version: [README.md](README.md)
 
@@ -12,7 +12,7 @@
 
 ```
 ┌──────────┐   WAV（按键说话）       ┌─────────────────────┐   HTTPS + ChatGPT token   ┌─────────────────────────┐
-│ Voxtype  │ ─────────────────────► │ voxtype-codex-proxy │ ────────────────────────► │ chatgpt.com             │
+│ Voxtype  │ ─────────────────────► │ codex-dictate-proxy │ ────────────────────────► │ chatgpt.com             │
 │ （守护进程）│   127.0.0.1:8377       │ （本地 Go 程序）      │   浏览器 UA + Bearer       │ /backend-api/transcribe │
 └──────────┘ ◄───────────────────── └─────────────────────┘ ◄──────────────────────── └─────────────────────────┘
         把文字打出来        {"text": "..."}         从 ~/.codex/auth.json 读取并加上鉴权
@@ -23,7 +23,7 @@
 | 平台 | 采集端 | 热键 | 状态 |
 |------|--------|------|------|
 | **Linux**（Wayland/Hyprland + systemd） | [Voxtype](https://voxtype.io) 守护进程 | SUPER+CTRL+X 切换 · **F9 按住** | ✅ 支持 |
-| **macOS**（12+） | 仓库自带的 `voxtype-mac`（Swift 单文件） | **按住 fn** | ✅ 支持 |
+| **macOS**（12+） | 仓库自带的 `codex-dictate`（Swift 单文件） | **按住 fn** | ✅ 支持 |
 | **Windows** | — | — | ❌ 不支持 |
 
 - **Linux** 用户：继续往下看。
@@ -40,9 +40,9 @@
 brew install go sox           # sox 负责录音；go 用来编译代理
 xcode-select --install        # 提供 swiftc（已装可跳过）
 
-git clone <这个仓库的地址> voxtype-codex-dictation
-cd voxtype-codex-dictation
-./mac/build.sh                # 把 proxy + voxtype-mac 编译进 ~/.local/bin
+git clone <这个仓库的地址> codex-dictate
+cd codex-dictate
+./mac/build.sh                # 把 proxy + codex-dictate 编译进 ~/.local/bin
 ./mac/install-agents.sh       # 可选：把两个程序装成登录后台代理
 ```
 
@@ -53,7 +53,7 @@ macOS 客户端做的事和 Linux 流程一一对应：监听**物理 fn 键**�
 `NSEvent` 全局监听）→ 按住时用 **`sox`** 录 16kHz 单声道 WAV → 松开后 POST 给同一个
 代理 → 把结果**粘贴**出来（写剪贴板 + Cmd+V，再还原原剪贴板）。不需要 Xcode 工程、
 不打 `.app` 包、不依赖 Hammerspoon/Karabiner——就一个 Swift 文件
-（`mac/voxtype-mac.swift`）编成单个二进制。
+（`mac/codex-dictate.swift`）编成单个二进制。
 
 ---
 
@@ -100,17 +100,17 @@ Voxtype 自带的「remote」模式可以把音频 POST 给任意「OpenAI 兼�
 ## 安装（一条龙）
 
 ```bash
-git clone https://github.com/sicko7947/voxtype-codex-dictation
-cd voxtype-codex-dictation
+git clone https://github.com/sicko7947/codex-dictate
+cd codex-dictate
 ./setup.sh
 ```
 
 `setup.sh` 是幂等且保守的——它会：
 
 1. 检查 Voxtype、Go、以及你的 Codex 登录都在，
-2. 把代理编译到 `~/.local/bin/voxtype-codex-proxy`，
+2. 把代理编译到 `~/.local/bin/codex-dictate-proxy`，
 3. 安装 Voxtype 配置预设（会**备份**你原有的），
-4. 安装 `voxtype-codex-proxy` 这个 systemd **用户**服务，外加给 `voxtype.service` 的两个 drop-in，
+4. 安装 `codex-dictate-proxy` 这个 systemd **用户**服务，外加给 `voxtype.service` 的两个 drop-in，
 5. 启用并启动所有服务，
 6. 真跑一次转写往返，确认鉴权 + Cloudflare + 后端全部正常。
 
@@ -159,9 +159,9 @@ cd voxtype-codex-dictation
 
 | 路径 | 是什么 |
 |------|--------|
-| `~/.local/bin/voxtype-codex-proxy` | Go 代理程序 |
+| `~/.local/bin/codex-dictate-proxy` | Go 代理程序 |
 | `~/.config/voxtype/config.toml` | Voxtype 设为 `mode = "remote"` → 指向代理 |
-| `~/.config/systemd/user/voxtype-codex-proxy.service` | 运行代理，随会话自启 |
+| `~/.config/systemd/user/codex-dictate-proxy.service` | 运行代理，随会话自启 |
 | `~/.config/systemd/user/voxtype.service.d/10-codex-proxy.conf` | 让代理先于 Voxtype 启动 |
 | `~/.config/systemd/user/voxtype.service.d/20-no-eager.conf` | 去掉 `--eager-processing`（见下） |
 
@@ -177,14 +177,14 @@ Voxtype 的 `--eager-processing` 会**在你还在说话时就分块转写**（�
 
 ## 可调参数
 
-**代理**（`voxtype-codex-proxy.service` 里的环境变量）：
+**代理**（`codex-dictate-proxy.service` 里的环境变量）：
 
 | 变量 | 默认 | 含义 |
 |------|------|------|
-| `VOXTYPE_PROXY_PORT` | `8377` | 监听端口（同时要改 `remote_endpoint`） |
-| `VOXTYPE_PROXY_HOST` | `127.0.0.1` | 监听地址（**保持本地！**） |
-| `VOXTYPE_PROXY_NO_NORMALIZE` | 未设 | 设为 `1` 关闭音量归一化 |
-| `VOXTYPE_PROXY_DEBUG_DIR` | 未设 | 设成某目录（如 `/tmp`）会把实际发出的音频 dump 下来，方便排查 |
+| `CODEX_DICTATE_PROXY_PORT` | `8377` | 监听端口（同时要改 `remote_endpoint`） |
+| `CODEX_DICTATE_PROXY_HOST` | `127.0.0.1` | 监听地址（**保持本地！**） |
+| `CODEX_DICTATE_PROXY_NO_NORMALIZE` | 未设 | 设为 `1` 关闭音量归一化 |
+| `CODEX_DICTATE_PROXY_DEBUG_DIR` | 未设 | 设成某目录（如 `/tmp`）会把实际发出的音频 dump 下来，方便排查 |
 
 **Voxtype**（`~/.config/voxtype/config.toml`）：其余都是标准设置。要切回本地模型见上面的「切换」一节，或直接 `mode = "local"`。
 
@@ -197,14 +197,14 @@ Voxtype 的 `--eager-processing` 会**在你还在说话时就分块转写**（�
 
 ```bash
 # 代理起来了吗？
-systemctl --user status voxtype-codex-proxy.service
+systemctl --user status codex-dictate-proxy.service
 curl http://127.0.0.1:8377/            # -> {"status":"ok", ...}
 
 # 实时日志
-journalctl --user -u voxtype-codex-proxy.service -f
+journalctl --user -u codex-dictate-proxy.service -f
 
 # 看 Voxtype 到底发了什么音频（再用 ffprobe/耳朵检查）
-systemctl --user set-environment VOXTYPE_PROXY_DEBUG_DIR=/tmp   # 或改 unit 文件
+systemctl --user set-environment CODEX_DICTATE_PROXY_DEBUG_DIR=/tmp   # 或改 unit 文件
 ```
 
 | 现象 | 可能原因 / 解决 |

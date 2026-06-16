@@ -20,7 +20,7 @@ pause_media = true
 
 [whisper]
 # ---- ChatGPT remote transcription (the whole point of this repo) ----
-# "remote" sends audio to the local proxy (voxtype-codex-proxy), which forwards
+# "remote" sends audio to the local proxy (codex-dictate-proxy), which forwards
 # it to https://chatgpt.com/backend-api/transcribe using your ~/.codex/auth.json.
 # To go back to a local GPU model: set mode = "local" and pick a `model` below.
 mode = "remote"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# voxtype-codex-dictation — switch transcription backend.
+# codex-dictate — switch transcription backend.
 #
 # Flips ~/.config/voxtype/config.toml between:
 #   remote  -> ChatGPT (Codex) backend, via the local proxy  (no local model)
@@ -50,7 +50,7 @@ set_mode(){ # $1 = remote|local
 
 restart_services(){
   if [ "$1" = "remote" ]; then
-    systemctl --user start voxtype-codex-proxy.service 2>/dev/null || true
+    systemctl --user start codex-dictate-proxy.service 2>/dev/null || true
   fi
   systemctl --user restart voxtype.service 2>/dev/null \
     || c_y "  (couldn't restart voxtype.service automatically — restart it yourself)"

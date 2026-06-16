@@ -1,5 +1,7 @@
-# Build output — the proxy binary is built locally by setup.sh
+# Build output — built locally by setup.sh / mac/build.sh
+/proxy/codex-dictate-proxy
 /proxy/voxtype-codex-proxy
+/mac/codex-dictate
 *.exe
 
 # Never commit secrets / auth

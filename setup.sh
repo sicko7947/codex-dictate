@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# voxtype-codex-dictation — installer
+# codex-dictate — installer
 #
 # Wires Voxtype's "remote" transcription to the ChatGPT (Codex) backend through a
 # tiny local Go proxy. Idempotent: safe to re-run. Backs up any file it replaces.
@@ -14,7 +14,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 UNIT_DIR="$HOME/.config/systemd/user"
 VOX_CFG_DIR="$HOME/.config/voxtype"
-PROXY_BIN="$BIN_DIR/voxtype-codex-proxy"
+PROXY_BIN="$BIN_DIR/codex-dictate-proxy"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 c_g(){ printf '\033[32m%s\033[0m\n' "$*"; }   # green
@@ -33,7 +33,7 @@ backup(){ # backup $1 if it exists and differs from $2 (the new content source)
 
 [ "${1:-}" = "--help" ] && { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
 
-c_b "voxtype-codex-dictation installer"
+c_b "codex-dictate installer"
 echo "repo: $REPO_DIR"
 
 # ---------------------------------------------------------------- preflight ---
@@ -99,8 +99,8 @@ c_g "  wrote $VOX_CFG_DIR/config.toml"
 step "Installing systemd user services"
 mkdir -p "$UNIT_DIR/voxtype.service.d"
 
-install -m 0644 "$REPO_DIR/config/systemd/voxtype-codex-proxy.service" "$UNIT_DIR/voxtype-codex-proxy.service"
-c_g "  wrote voxtype-codex-proxy.service"
+install -m 0644 "$REPO_DIR/config/systemd/codex-dictate-proxy.service" "$UNIT_DIR/codex-dictate-proxy.service"
+c_g "  wrote codex-dictate-proxy.service"
 
 # Ensure a voxtype.service exists (Omarchy ships one; otherwise create it).
 if [ ! -f "$UNIT_DIR/voxtype.service" ] && ! systemctl --user cat voxtype.service >/dev/null 2>&1; then
@@ -114,10 +114,10 @@ c_g "  wrote voxtype.service.d/{10-codex-proxy,20-no-eager}.conf"
 
 step "Enabling and starting services"
 systemctl --user daemon-reload
-systemctl --user enable --now voxtype-codex-proxy.service
+systemctl --user enable --now codex-dictate-proxy.service
 systemctl --user restart voxtype.service 2>/dev/null || c_y "  voxtype.service not started (start it once your session has it)."
 sleep 1
-c_g "  proxy:   $(systemctl --user is-active voxtype-codex-proxy.service)"
+c_g "  proxy:   $(systemctl --user is-active codex-dictate-proxy.service)"
 c_g "  voxtype: $(systemctl --user is-active voxtype.service 2>/dev/null || echo n/a)"
 
 # --------------------------------------------------------------- smoke test ---
@@ -138,7 +138,7 @@ if [ "$HAVE_FFMPEG" = "1" ]; then
     c_r "  end-to-end transcribe: HTTP $CODE"
     echo "    403  -> Cloudflare/auth: make sure Codex (ChatGPT) is signed in and the token is fresh."
     echo "    502  -> proxy could not reach ChatGPT or read auth.json."
-    echo "    Logs: journalctl --user -u voxtype-codex-proxy.service -e"
+    echo "    Logs: journalctl --user -u codex-dictate-proxy.service -e"
   fi
 else
   c_y "  ffmpeg not found — skipped audio round-trip (install ffmpeg for the full check)."
@@ -156,8 +156,8 @@ On Omarchy these binds exist by default. Otherwise add them:
   source config/hypr/voxtype.conf  -> see that file's header, then 'hyprctl reload'.
 
 Useful commands:
-  systemctl --user status voxtype-codex-proxy.service
-  journalctl --user -u voxtype-codex-proxy.service -f
+  systemctl --user status codex-dictate-proxy.service
+  journalctl --user -u codex-dictate-proxy.service -f
   ./uninstall.sh                 # revert everything
 
 Switch between ChatGPT (remote) and a local model anytime:

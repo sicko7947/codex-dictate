@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #
-# voxtype-codex-dictation — uninstaller. Reverts what setup.sh installed.
+# codex-dictate — uninstaller. Reverts what setup.sh installed.
 # Does NOT touch ~/.codex/auth.json or reinstall any local Whisper model.
 #
 set -euo pipefail
 
 UNIT_DIR="$HOME/.config/systemd/user"
-BIN="$HOME/.local/bin/voxtype-codex-proxy"
+BIN="$HOME/.local/bin/codex-dictate-proxy"
 
 c_g(){ printf '\033[32m%s\033[0m\n' "$*"; }
 c_y(){ printf '\033[33m%s\033[0m\n' "$*"; }
 
 echo "Stopping and removing the proxy service..."
-systemctl --user disable --now voxtype-codex-proxy.service 2>/dev/null || true
-rm -f "$UNIT_DIR/voxtype-codex-proxy.service"
+systemctl --user disable --now codex-dictate-proxy.service 2>/dev/null || true
+rm -f "$UNIT_DIR/codex-dictate-proxy.service"
 rm -f "$UNIT_DIR/voxtype.service.d/10-codex-proxy.conf"
 rm -f "$UNIT_DIR/voxtype.service.d/20-no-eager.conf"
 rmdir "$UNIT_DIR/voxtype.service.d" 2>/dev/null || true

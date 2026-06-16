@@ -1,4 +1,4 @@
-# voxtype-codex-dictation
+# codex-dictate
 
 > System-wide **push-to-talk dictation** on **Linux and macOS**, transcribed by
 > **ChatGPT's backend** (the same one the Codex desktop app uses) — no local GPU
@@ -12,7 +12,7 @@ already have via Codex (`~/.codex/auth.json`).
 
 ```
             WAV (push-to-talk)        ┌─────────────────────┐   HTTPS + ChatGPT token   ┌─────────────────────────┐
- capture ─────────────────────────►  │ voxtype-codex-proxy │ ────────────────────────► │ chatgpt.com             │
+ capture ─────────────────────────►  │ codex-dictate-proxy │ ────────────────────────► │ chatgpt.com             │
  client    127.0.0.1:8377            │ (local Go binary)   │   browser UA + Bearer     │ /backend-api/transcribe │
         ◄─────────────────────────   └─────────────────────┘ ◄──────────────────────── └─────────────────────────┘
    text at cursor          {"text": "..."}            adds auth from ~/.codex/auth.json
@@ -24,7 +24,7 @@ The **proxy is shared across platforms**; only the *capture client* (hotkey + mi
 | Platform | Capture client | Hotkey | Status |
 |----------|----------------|--------|--------|
 | **Linux** (Wayland/Hyprland + systemd) | [Voxtype](https://voxtype.io) daemon | SUPER+CTRL+X toggle · **F9 hold** | ✅ supported |
-| **macOS** (12+) | bundled `voxtype-mac` Swift binary | **fn hold** | ✅ supported |
+| **macOS** (12+) | bundled `codex-dictate` Swift binary | **fn hold** | ✅ supported |
 | **Windows** | — | — | ❌ not supported |
 
 - **Linux** → keep reading below, or jump to [Linux install](#linux-install).
@@ -77,9 +77,9 @@ Full details + permissions in **[mac/README.md](mac/README.md)**. Short version:
 brew install go sox           # sox records the mic; go builds the proxy
 xcode-select --install        # provides swiftc (skip if already installed)
 
-git clone <this-repo-url> voxtype-codex-dictation
-cd voxtype-codex-dictation
-./mac/build.sh                # builds proxy + voxtype-mac into ~/.local/bin
+git clone <this-repo-url> codex-dictate
+cd codex-dictate
+./mac/build.sh                # builds proxy + codex-dictate into ~/.local/bin
 ./mac/install-agents.sh       # run both as login agents (optional)
 ```
 
@@ -95,7 +95,7 @@ What the macOS client does, mirroring the Linux flow:
 - **pastes** the result (clipboard + Cmd+V, original clipboard restored).
 
 No Xcode project, no `.app` bundle, no Hammerspoon/Karabiner — one Swift file
-(`mac/voxtype-mac.swift`) compiled to a single binary.
+(`mac/codex-dictate.swift`) compiled to a single binary.
 
 ---
 
@@ -116,17 +116,17 @@ Linux uses the [Voxtype](https://voxtype.io) daemon as the capture client.
 ### Install (the whole thing)
 
 ```bash
-git clone <this-repo-url> voxtype-codex-dictation
-cd voxtype-codex-dictation
+git clone <this-repo-url> codex-dictate
+cd codex-dictate
 ./setup.sh
 ```
 
 `setup.sh` is idempotent and conservative — it:
 
 1. checks Voxtype, Go, and your Codex login are present,
-2. builds the proxy to `~/.local/bin/voxtype-codex-proxy`,
+2. builds the proxy to `~/.local/bin/codex-dictate-proxy`,
 3. installs the Voxtype config preset (**backs up** any existing one),
-4. installs the `voxtype-codex-proxy` systemd **user** service + two drop-ins for
+4. installs the `codex-dictate-proxy` systemd **user** service + two drop-ins for
    `voxtype.service`,
 5. enables/starts everything, and
 6. runs a real transcribe round-trip to confirm auth + Cloudflare + the backend
@@ -151,9 +151,9 @@ Speak a sentence, release, and the transcript is typed wherever your cursor is.
 
 | Path | What |
 |------|------|
-| `~/.local/bin/voxtype-codex-proxy` | the Go proxy binary |
+| `~/.local/bin/codex-dictate-proxy` | the Go proxy binary |
 | `~/.config/voxtype/config.toml` | Voxtype set to `mode = "remote"` → the proxy |
-| `~/.config/systemd/user/voxtype-codex-proxy.service` | runs the proxy, autostarts with your session |
+| `~/.config/systemd/user/codex-dictate-proxy.service` | runs the proxy, autostarts with your session |
 | `~/.config/systemd/user/voxtype.service.d/10-codex-proxy.conf` | starts the proxy before Voxtype |
 | `~/.config/systemd/user/voxtype.service.d/20-no-eager.conf` | drops `--eager-processing` (see below) |
 
@@ -200,14 +200,14 @@ on macOS):
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `VOXTYPE_PROXY_PORT` | `8377` | listen port (also update the client endpoint) |
-| `VOXTYPE_PROXY_HOST` | `127.0.0.1` | listen address (keep it local!) |
-| `VOXTYPE_PROXY_TIMEOUT` | `120` | upstream timeout (seconds) |
-| `VOXTYPE_PROXY_NO_NORMALIZE` | unset | set to `1` to disable loudness normalization |
-| `VOXTYPE_PROXY_DEBUG_DIR` | unset | set to a dir (e.g. `/tmp`) to dump the exact audio sent, for debugging |
+| `CODEX_DICTATE_PROXY_PORT` | `8377` | listen port (also update the client endpoint) |
+| `CODEX_DICTATE_PROXY_HOST` | `127.0.0.1` | listen address (keep it local!) |
+| `CODEX_DICTATE_PROXY_TIMEOUT` | `120` | upstream timeout (seconds) |
+| `CODEX_DICTATE_PROXY_NO_NORMALIZE` | unset | set to `1` to disable loudness normalization |
+| `CODEX_DICTATE_PROXY_DEBUG_DIR` | unset | set to a dir (e.g. `/tmp`) to dump the exact audio sent, for debugging |
 
-**macOS client** (`voxtype-mac`) env vars: `VOXTYPE_KEYCODE` (default `63` = fn),
-`VOXTYPE_LANG` (default `auto`), `VOXTYPE_PROXY_URL`, `VOXTYPE_SOX`. See
+**macOS client** (`codex-dictate`) env vars: `CODEX_DICTATE_KEYCODE` (default `63` = fn),
+`CODEX_DICTATE_LANG` (default `auto`), `CODEX_DICTATE_PROXY_URL`, `CODEX_DICTATE_SOX`. See
 [mac/README.md](mac/README.md).
 
 **Mic tip:** a wired/USB mic beats a Bluetooth headset for dictation by a wide
@@ -228,18 +228,18 @@ curl http://127.0.0.1:8377/            # -> {"status":"ok", ...}
 **Linux logs / debug:**
 
 ```bash
-systemctl --user status voxtype-codex-proxy.service
-journalctl --user -u voxtype-codex-proxy.service -f
-systemctl --user set-environment VOXTYPE_PROXY_DEBUG_DIR=/tmp   # dump sent audio
+systemctl --user status codex-dictate-proxy.service
+journalctl --user -u codex-dictate-proxy.service -f
+systemctl --user set-environment CODEX_DICTATE_PROXY_DEBUG_DIR=/tmp   # dump sent audio
 ```
 
-**macOS logs:** `~/Library/Logs/io.voxtype.*.log` (when run as launch agents).
+**macOS logs:** `~/Library/Logs/io.codexdictate.*.log` (when run as launch agents).
 
 | Symptom | Likely cause / fix |
 |---------|--------------------|
 | **HTTP 403** on transcribe | ChatGPT token missing/expired, or Cloudflare. Make sure Codex is signed in (`codex login`); open the Codex app once to refresh. |
 | **HTTP 502** | proxy couldn't reach ChatGPT or read `~/.codex/auth.json`. Check the logs. |
-| **(macOS) fn does nothing** | grant **Input Monitoring**; if you remapped fn in System Settings → Keyboard, set "Press 🌐 to" → **Do Nothing**, or use a different `VOXTYPE_KEYCODE`. |
+| **(macOS) fn does nothing** | grant **Input Monitoring**; if you remapped fn in System Settings → Keyboard, set "Press 🌐 to" → **Do Nothing**, or use a different `CODEX_DICTATE_KEYCODE`. |
 | **(macOS) nothing pastes** | grant **Accessibility** (needed to synthesize Cmd+V); restart the client. |
 | **(macOS) no audio** | grant **Microphone**; check `sox` is installed (`brew install sox`). |
 | **(Linux) garbled text at sentence seams** | `--eager-processing` still on — confirm `20-no-eager.conf` is installed and `systemctl --user daemon-reload && systemctl --user restart voxtype.service`. |

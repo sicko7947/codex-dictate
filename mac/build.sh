@@ -12,17 +12,17 @@ command -v swiftc >/dev/null || { echo "swiftc not found. Run: xcode-select --in
 command -v go     >/dev/null || { echo "go not found. brew install go"; exit 1; }
 command -v sox    >/dev/null || echo "WARNING: sox not found — brew install sox (needed at runtime)"
 
-echo "==> building proxy -> $BIN_DIR/voxtype-codex-proxy"
-( cd "$REPO_DIR/proxy" && CGO_ENABLED=0 go build -ldflags "-s -w" -o "$BIN_DIR/voxtype-codex-proxy" . )
+echo "==> building proxy -> $BIN_DIR/codex-dictate-proxy"
+( cd "$REPO_DIR/proxy" && CGO_ENABLED=0 go build -ldflags "-s -w" -o "$BIN_DIR/codex-dictate-proxy" . )
 
-echo "==> building client -> $BIN_DIR/voxtype-mac"
-swiftc -O "$REPO_DIR/mac/voxtype-mac.swift" -o "$BIN_DIR/voxtype-mac"
+echo "==> building client -> $BIN_DIR/codex-dictate"
+swiftc -O "$REPO_DIR/mac/codex-dictate.swift" -o "$BIN_DIR/codex-dictate"
 
 echo
 echo "Done. Next:"
 echo "  1) make sure ~/.codex/auth.json exists (codex login / Codex desktop)"
-echo "  2) start the proxy:   $BIN_DIR/voxtype-codex-proxy &"
-echo "  3) start the client:  $BIN_DIR/voxtype-mac"
+echo "  2) start the proxy:   $BIN_DIR/codex-dictate-proxy &"
+echo "  3) start the client:  $BIN_DIR/codex-dictate"
 echo "     (first run prompts for Microphone, Input Monitoring, Accessibility —"
 echo "      approve all three, then restart the client)"
 echo

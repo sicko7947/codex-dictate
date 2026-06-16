@@ -8,8 +8,8 @@ LA_DIR="$HOME/Library/LaunchAgents"
 LOG_DIR="$HOME/Library/Logs"
 mkdir -p "$LA_DIR" "$LOG_DIR"
 
-PROXY="$BIN_DIR/voxtype-codex-proxy"
-CLIENT="$BIN_DIR/voxtype-mac"
+PROXY="$BIN_DIR/codex-dictate-proxy"
+CLIENT="$BIN_DIR/codex-dictate"
 [ -x "$PROXY" ]  || { echo "missing $PROXY — run ./mac/build.sh first"; exit 1; }
 [ -x "$CLIENT" ] || { echo "missing $CLIENT — run ./mac/build.sh first"; exit 1; }
 
@@ -36,16 +36,16 @@ EOF
   echo "wrote $plist"
 }
 
-write_plist "io.voxtype.codex-proxy" "$PROXY"
-write_plist "io.voxtype.mac"          "$CLIENT"
+write_plist "io.codexdictate.proxy" "$PROXY"
+write_plist "io.codexdictate.client"          "$CLIENT"
 
-for label in io.voxtype.codex-proxy io.voxtype.mac; do
+for label in io.codexdictate.proxy io.codexdictate.client; do
   launchctl unload "$LA_DIR/$label.plist" 2>/dev/null || true
   launchctl load  "$LA_DIR/$label.plist"
 done
 
 echo
-echo "Loaded. Logs: $LOG_DIR/io.voxtype.*.log"
+echo "Loaded. Logs: $LOG_DIR/io.codexdictate.*.log"
 echo "First time only: approve Microphone / Input Monitoring / Accessibility in"
-echo "System Settings -> Privacy & Security for 'voxtype-mac', then:"
-echo "  launchctl kickstart -k gui/\$(id -u)/io.voxtype.mac"
+echo "System Settings -> Privacy & Security for 'codex-dictate', then:"
+echo "  launchctl kickstart -k gui/\$(id -u)/io.codexdictate.client"

@@ -1,4 +1,4 @@
-// voxtype-codex-proxy: local OpenAI-compatible /v1/audio/transcriptions shim that
+// codex-dictate-proxy: local OpenAI-compatible /v1/audio/transcriptions shim that
 // forwards audio to the ChatGPT (Codex) transcribe backend using the ChatGPT OAuth
 // token from ~/.codex/auth.json.
 //
@@ -8,8 +8,8 @@
 // token is read fresh from auth.json per request, so Codex token refreshes are
 // picked up automatically.
 //
-// Static build:  CGO_ENABLED=0 go build -ldflags "-s -w" -o voxtype-codex-proxy .
-// Listens on 127.0.0.1:8377 (override with VOXTYPE_PROXY_HOST/PORT).
+// Static build:  CGO_ENABLED=0 go build -ldflags "-s -w" -o codex-dictate-proxy .
+// Listens on 127.0.0.1:8377 (override with CODEX_DICTATE_PROXY_HOST/PORT).
 package main
 
 import (
@@ -72,7 +72,7 @@ var httpClient = &http.Client{Timeout: 120 * time.Second}
 // guards the peak against clipping. On any parse problem it returns the input
 // untouched — never break the pipeline for the sake of a tweak.
 func normalizePCM16WAV(b []byte) []byte {
-	if os.Getenv("VOXTYPE_PROXY_NO_NORMALIZE") != "" {
+	if os.Getenv("CODEX_DICTATE_PROXY_NO_NORMALIZE") != "" {
 		return b
 	}
 	if len(b) < 44 || string(b[0:4]) != "RIFF" || string(b[8:12]) != "WAVE" {
@@ -211,13 +211,13 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		fileBytes = normalizePCM16WAV(fileBytes)
 	}
 
-	// Debug: dump the exact audio we forward upstream (set VOXTYPE_PROXY_DEBUG_DIR).
-	if dir := os.Getenv("VOXTYPE_PROXY_DEBUG_DIR"); dir != "" {
+	// Debug: dump the exact audio we forward upstream (set CODEX_DICTATE_PROXY_DEBUG_DIR).
+	if dir := os.Getenv("CODEX_DICTATE_PROXY_DEBUG_DIR"); dir != "" {
 		ext := filepath.Ext(fileName)
 		if ext == "" {
 			ext = ".bin"
 		}
-		dst := filepath.Join(dir, "voxtype-last"+ext)
+		dst := filepath.Join(dir, "codex-dictate-last"+ext)
 		_ = os.WriteFile(dst, fileBytes, 0o600)
 		log.Printf("[proxy] recv file=%s ct=%s bytes=%d lang=%q -> %s",
 			fileName, fileCT, len(fileBytes), language, dst)
@@ -278,8 +278,8 @@ func createFilePart(mw *multipart.Writer, name, ct string) (io.Writer, error) {
 }
 
 func main() {
-	addr := env("VOXTYPE_PROXY_HOST", "127.0.0.1") + ":" + env("VOXTYPE_PROXY_PORT", "8377")
-	if t := os.Getenv("VOXTYPE_PROXY_TIMEOUT"); t != "" {
+	addr := env("CODEX_DICTATE_PROXY_HOST", "127.0.0.1") + ":" + env("CODEX_DICTATE_PROXY_PORT", "8377")
+	if t := os.Getenv("CODEX_DICTATE_PROXY_TIMEOUT"); t != "" {
 		if secs, err := strconv.Atoi(t); err == nil {
 			httpClient.Timeout = time.Duration(secs) * time.Second
 		}
