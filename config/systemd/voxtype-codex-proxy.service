@@ -1,0 +1,17 @@
+[Unit]
+Description=Voxtype -> ChatGPT (Codex) transcribe proxy
+Documentation=https://github.com/REPLACE_ME/voxtype-codex-dictation
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/voxtype-codex-proxy
+Restart=on-failure
+RestartSec=3
+# Uncomment to disable the loudness normalization or watch the audio it sends:
+# Environment=VOXTYPE_PROXY_NO_NORMALIZE=1
+# Environment=VOXTYPE_PROXY_DEBUG_DIR=/tmp
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,57 @@
+# Voxtype configuration — ChatGPT (Codex) remote-transcription preset
+# Location after install: ~/.config/voxtype/config.toml
+#
+# This preset routes transcription to the ChatGPT backend through the local
+# proxy instead of running a local Whisper model. See the repo README.
+
+state_file = "auto"
+engine = "whisper"
+
+[hotkey]
+# The hotkey is bound in Hyprland (see config/hypr/voxtype.conf), not here.
+enabled = false
+
+[audio]
+device = "default"
+# Whisper consumes 16 kHz mono; leave this unless you know better.
+sample_rate = 16000
+max_duration_secs = 60
+pause_media = true
+
+[whisper]
+# ---- ChatGPT remote transcription (the whole point of this repo) ----
+# "remote" sends audio to the local proxy (voxtype-codex-proxy), which forwards
+# it to https://chatgpt.com/backend-api/transcribe using your ~/.codex/auth.json.
+# To go back to a local GPU model: set mode = "local" and pick a `model` below.
+mode = "remote"
+remote_endpoint = "http://127.0.0.1:8377"
+remote_model = "whisper-1"
+remote_api_key = "proxy-ignored"   # proxy uses ~/.codex/auth.json; this is ignored
+remote_timeout_secs = 60
+
+# Only used when mode = "local". Safe to leave; ignored in remote mode.
+model = "large-v3"
+
+# "auto" detects language per utterance (good for bilingual dictation).
+language = "auto"
+translate = false
+
+[output]
+# "type" simulates keystrokes at the cursor; needs wtype (Wayland) or ydotool.
+mode = "type"
+fallback_to_clipboard = true
+type_delay_ms = 0
+
+# Optional: pipe the transcript through your own cleanup command before typing.
+# [output.post_process]
+# command = "/home/youruser/.local/bin/voxtype-cleanup"
+# timeout_ms = 1000
+
+[output.notification]
+on_recording_start = false
+on_recording_stop = false
+on_transcription = false
+
+[text]
+# Leave word fixups to the model. Add local overrides here only if you want them.
+# replacements = { "pullrequest" = "pull request" }
