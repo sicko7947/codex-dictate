@@ -1,0 +1,15 @@
+# Build output — the proxy binary is built locally by setup.sh
+/proxy/voxtype-codex-proxy
+*.exe
+
+# Never commit secrets / auth
+auth.json
+.codex/
+
+# Editor / OS noise
+*.swp
+*~
+.DS_Store
+
+# Voxtype config backups produced by setup.sh
+*.bak-*
