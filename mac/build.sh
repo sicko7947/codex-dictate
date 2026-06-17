@@ -18,6 +18,19 @@ echo "==> building proxy -> $BIN_DIR/codex-dictate-proxy"
 echo "==> building client -> $BIN_DIR/codex-dictate"
 swiftc -O "$REPO_DIR/mac/codex-dictate.swift" -o "$BIN_DIR/codex-dictate"
 
+SIGN_IDENTITY="${CODEX_DICTATE_CODESIGN_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ]; then
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/"/ { print $2; exit }')"
+fi
+
+if [ -n "$SIGN_IDENTITY" ]; then
+  echo "==> signing client with identity: $SIGN_IDENTITY"
+  codesign --force --sign "$SIGN_IDENTITY" --identifier io.codexdictate.client "$BIN_DIR/codex-dictate"
+else
+  echo "==> signing client ad-hoc (set CODEX_DICTATE_CODESIGN_IDENTITY for stable macOS privacy grants)"
+  codesign --force --sign - --identifier io.codexdictate.client "$BIN_DIR/codex-dictate"
+fi
+
 echo
 echo "Done. Next:"
 echo "  1) make sure ~/.codex/auth.json exists (codex login / Codex desktop)"

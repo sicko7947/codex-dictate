@@ -65,6 +65,11 @@ your cursor is.
 | `CODEX_DICTATE_LANG` | `auto` | force a language, e.g. `en` / `zh` |
 | `CODEX_DICTATE_PROXY_URL` | `http://127.0.0.1:8377/v1/audio/transcriptions` | |
 | `CODEX_DICTATE_SOX` | auto-detected | full path to `sox` if not on PATH |
+| `CODEX_DICTATE_INPUT_DEVICE` | unset | force one CoreAudio input device and disable auto selection |
+| `CODEX_DICTATE_FALLBACK_INPUT_DEVICE` | set by installer when available | second input to record in auto mode, e.g. `MacBook Pro Microphone` |
+| `CODEX_DICTATE_SILENCE_RMS_DB` | `-75` | default input below this RMS is treated as effectively silent |
+| `CODEX_DICTATE_FALLBACK_MARGIN_DB` | `9` | fallback must beat default by this many dB before replacing a non-silent default |
+| `CODEX_DICTATE_CODESIGN_IDENTITY` | first local identity, else ad-hoc | signing identity used by `mac/build.sh` for stable macOS privacy grants |
 
 Set them in `~/Library/LaunchAgents/io.codexdictate.client.plist`
 (`EnvironmentVariables`) when running as an agent.
@@ -78,5 +83,15 @@ Set them in `~/Library/LaunchAgents/io.codexdictate.client.plist`
 - **Paste vs. type**: this pastes (Cmd+V) instead of simulating each keystroke —
   faster and Unicode-safe. It briefly uses the clipboard and restores your prior
   contents ~0.4 s later.
+- **Bluetooth inputs**: in auto mode the client records the system default input
+  and the configured fallback input during the same push-to-talk window, then
+  transcribes the recording with the stronger usable signal. This keeps Bluetooth
+  earbud mics working when they are healthy, while falling back from silent or
+  weak Bluetooth input without losing the utterance.
+- **Privacy grants after rebuilds**: `mac/build.sh` signs the client with the
+  first local code-signing identity it can find, or with
+  `CODEX_DICTATE_CODESIGN_IDENTITY` when set. If no identity exists, it falls
+  back to ad-hoc signing; after rebuilding an ad-hoc binary, macOS may require
+  re-adding `~/.local/bin/codex-dictate` under Input Monitoring and Accessibility.
 - The proxy is byte-for-byte the same one Linux uses (`proxy/main.go`), including
   the loudness normalization and per-request token refresh.

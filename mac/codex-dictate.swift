@@ -22,10 +22,15 @@
 // Env overrides:
 //   CODEX_DICTATE_PROXY_URL  (default http://127.0.0.1:8377/v1/audio/transcriptions)
 //   CODEX_DICTATE_SOX        (default: first of /opt/homebrew/bin/sox, /usr/local/bin/sox, sox)
+//   CODEX_DICTATE_INPUT_DEVICE (CoreAudio input device name; disables auto selection)
+//   CODEX_DICTATE_FALLBACK_INPUT_DEVICE (default: none; e.g. MacBook Pro Microphone)
+//   CODEX_DICTATE_SILENCE_RMS_DB (default: -75)
+//   CODEX_DICTATE_FALLBACK_MARGIN_DB (default: 9)
 //   CODEX_DICTATE_KEYCODE    (default 63 = the physical fn / Globe key)
 //   CODEX_DICTATE_LANG       (default auto)
 
 import Cocoa
+import ApplicationServices
 
 // ---- Config -----------------------------------------------------------------
 
@@ -33,6 +38,24 @@ let proxyURL = ProcessInfo.processInfo.environment["CODEX_DICTATE_PROXY_URL"]
     ?? "http://127.0.0.1:8377/v1/audio/transcriptions"
 
 let language = ProcessInfo.processInfo.environment["CODEX_DICTATE_LANG"] ?? "auto"
+
+func cleanEnv(_ key: String) -> String? {
+    guard let v = ProcessInfo.processInfo.environment[key]?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+          !v.isEmpty else { return nil }
+    return v
+}
+
+func doubleEnv(_ key: String, _ fallback: Double) -> Double {
+    guard let v = ProcessInfo.processInfo.environment[key],
+          let n = Double(v) else { return fallback }
+    return n
+}
+
+let explicitInputDevice = cleanEnv("CODEX_DICTATE_INPUT_DEVICE")
+let fallbackInputDevice = cleanEnv("CODEX_DICTATE_FALLBACK_INPUT_DEVICE")
+let silenceRMSDB = doubleEnv("CODEX_DICTATE_SILENCE_RMS_DB", -75)
+let fallbackMarginDB = doubleEnv("CODEX_DICTATE_FALLBACK_MARGIN_DB", 9)
 
 let hotKeyCode: UInt16 = {
     if let v = ProcessInfo.processInfo.environment["CODEX_DICTATE_KEYCODE"],
@@ -48,7 +71,7 @@ let soxPath: String = {
     return "sox"
 }()
 
-let recPath = NSTemporaryDirectory() + "codex-dictate.wav"
+let recDir = NSTemporaryDirectory()
 
 // All record start/stop + network work runs on this serial queue so the main
 // run loop (and the fn-key monitor) never blocks on sox or the HTTP round-trip.
@@ -56,51 +79,164 @@ let work = DispatchQueue(label: "codex-dictate.work")
 
 // ---- Recording (sox) --------------------------------------------------------
 
-var soxProcess: Process?
+struct Recording {
+    let label: String
+    let path: String
+    let process: Process
+}
+
+struct AudioChoice {
+    let label: String
+    let path: String
+    let wav: Data
+    let rmsDB: Double
+    let peakDB: Double
+}
+
+var recordings: [Recording] = []
 var recording = false
+
+func argsForInput(label: String) -> [String] {
+    if label == "default" { return ["-d"] }
+    return ["-t", "coreaudio", label]
+}
+
+func sanitized(_ label: String) -> String {
+    label.map { ch in
+        ch.isLetter || ch.isNumber ? ch : "-"
+    }.reduce("") { $0 + String($1) }
+}
 
 func startRecording() {
     work.async {
         if recording { return }
-        try? FileManager.default.removeItem(atPath: recPath)
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: soxPath)
-        // -d = default input device; matches the 16 kHz mono PCM16 the proxy expects.
-        p.arguments = ["-d", "-q", "-r", "16000", "-c", "1", "-b", "16",
-                       "-e", "signed-integer", recPath]
-        do {
-            try p.run()
-            soxProcess = p
-            recording = true
-            FileHandle.standardError.write("[codex-dictate] recording…\n".data(using: .utf8)!)
-        } catch {
-            FileHandle.standardError.write(
-                "[codex-dictate] failed to start sox at \(soxPath): \(error)\n".data(using: .utf8)!)
+        recordings.removeAll()
+
+        let labels: [String]
+        if let explicitInputDevice {
+            labels = [explicitInputDevice]
+        } else if let fallbackInputDevice {
+            labels = ["default", fallbackInputDevice]
+        } else {
+            labels = ["default"]
         }
+
+        for label in labels {
+            let path = recDir + "codex-dictate-\(sanitized(label)).wav"
+            try? FileManager.default.removeItem(atPath: path)
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: soxPath)
+            p.arguments = argsForInput(label: label) + ["-q", "-r", "16000", "-c", "1", "-b", "16",
+                                                        "-e", "signed-integer", path]
+            do {
+                try p.run()
+                recordings.append(Recording(label: label, path: path, process: p))
+            } catch {
+                FileHandle.standardError.write(
+                    "[codex-dictate] failed to start sox input=\(label) at \(soxPath): \(error)\n"
+                        .data(using: .utf8)!)
+            }
+        }
+
+        guard !recordings.isEmpty else {
+            FileHandle.standardError.write("[codex-dictate] no recording inputs available\n".data(using: .utf8)!)
+            return
+        }
+        recording = true
+        let inputList = recordings.map(\.label).joined(separator: ", ")
+        FileHandle.standardError.write("[codex-dictate] recording… inputs=\(inputList)\n".data(using: .utf8)!)
     }
 }
 
 func stopRecordingAndTranscribe() {
     work.async {
-        guard recording, let p = soxProcess else { return }
+        guard recording else { return }
         recording = false
-        p.interrupt()        // SIGINT lets sox finalize the WAV header
-        p.waitUntilExit()
-        soxProcess = nil
 
-        guard let wav = try? Data(contentsOf: URL(fileURLWithPath: recPath)),
-              wav.count > 1024 else {
+        let finished = recordings
+        recordings.removeAll()
+        for r in finished {
+            r.process.interrupt()        // SIGINT lets sox finalize the WAV header
+        }
+        for r in finished {
+            r.process.waitUntilExit()
+        }
+
+        guard let choice = chooseAudio(from: finished) else {
             FileHandle.standardError.write("[codex-dictate] no/too-short audio, skipping\n".data(using: .utf8)!)
             return
         }
-        guard let text = transcribe(wav: wav)?
+        FileHandle.standardError.write(
+            String(format: "[codex-dictate] using input=%@ rms=%.1f dB peak=%.1f dB\n",
+                   choice.label, choice.rmsDB, choice.peakDB).data(using: .utf8)!)
+        guard let text = transcribe(wav: choice.wav)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else {
             FileHandle.standardError.write("[codex-dictate] empty transcript\n".data(using: .utf8)!)
             return
         }
+        FileHandle.standardError.write("[codex-dictate] transcribed chars=\(text.count)\n".data(using: .utf8)!)
         DispatchQueue.main.async { paste(text) }
     }
+}
+
+func chooseAudio(from recordings: [Recording]) -> AudioChoice? {
+    let choices = recordings.compactMap { r -> AudioChoice? in
+        guard let wav = try? Data(contentsOf: URL(fileURLWithPath: r.path)),
+              wav.count > 1024,
+              let metrics = wavMetrics(wav) else { return nil }
+        return AudioChoice(label: r.label, path: r.path, wav: wav, rmsDB: metrics.rmsDB, peakDB: metrics.peakDB)
+    }
+    guard !choices.isEmpty else { return nil }
+    guard choices.count > 1 else { return choices[0] }
+
+    let sorted = choices.sorted { $0.rmsDB > $1.rmsDB }
+    guard let defaultChoice = choices.first(where: { $0.label == "default" }),
+          let best = sorted.first else { return sorted.first }
+
+    if defaultChoice.rmsDB <= silenceRMSDB {
+        return best
+    }
+    if best.label != "default" && best.rmsDB >= defaultChoice.rmsDB + fallbackMarginDB {
+        return best
+    }
+    return defaultChoice
+}
+
+func wavMetrics(_ b: Data) -> (rmsDB: Double, peakDB: Double)? {
+    guard b.count >= 44,
+          String(data: b[0..<4], encoding: .ascii) == "RIFF",
+          String(data: b[8..<12], encoding: .ascii) == "WAVE" else { return nil }
+
+    var off = 12
+    while off + 8 <= b.count {
+        let id = String(data: b[off..<off + 4], encoding: .ascii) ?? ""
+        let sz = Int(b[off + 4]) | Int(b[off + 5]) << 8 | Int(b[off + 6]) << 16 | Int(b[off + 7]) << 24
+        let body = off + 8
+        if id == "data" {
+            guard sz > 1, body + sz <= b.count else { return nil }
+            let samples = sz / 2
+            var sumSq = 0.0
+            var peak = 0.0
+            for i in 0..<samples {
+                let lo = UInt16(b[body + 2 * i])
+                let hi = UInt16(b[body + 2 * i + 1]) << 8
+                let sample = Int16(bitPattern: lo | hi)
+                let amp = abs(Double(sample))
+                peak = max(peak, amp)
+                sumSq += amp * amp
+            }
+            guard samples > 0 else { return nil }
+            let rms = sqrt(sumSq / Double(samples))
+            func db(_ v: Double) -> Double {
+                guard v > 0 else { return -120 }
+                return 20 * log10(v / 32768.0)
+            }
+            return (db(rms), db(peak))
+        }
+        off = body + sz + (sz & 1)
+    }
+    return nil
 }
 
 // ---- Transcription (POST to the local proxy) --------------------------------
@@ -163,6 +299,13 @@ func paste(_ text: String) {
     pb.clearContents()
     pb.setString(text, forType: .string)
 
+    guard AXIsProcessTrusted() else {
+        FileHandle.standardError.write(
+            "[codex-dictate] Accessibility not trusted; left transcript on clipboard\n"
+                .data(using: .utf8)!)
+        return
+    }
+
     let src = CGEventSource(stateID: .combinedSessionState)
     let kVMV: CGKeyCode = 9 // 'v'
     if let down = CGEvent(keyboardEventSource: src, virtualKey: kVMV, keyDown: true),
@@ -180,6 +323,15 @@ func paste(_ text: String) {
             pb.setString(saved, forType: .string)
         }
     }
+}
+
+func requestAccessibilityIfNeeded() {
+    if AXIsProcessTrusted() { return }
+    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+    _ = AXIsProcessTrustedWithOptions(opts)
+    FileHandle.standardError.write(
+        "[codex-dictate] Accessibility permission required for auto-paste\n"
+            .data(using: .utf8)!)
 }
 
 // ---- fn-key monitor ---------------------------------------------------------
@@ -204,6 +356,8 @@ if monitor == nil {
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // background agent, no Dock icon
+requestAccessibilityIfNeeded()
 FileHandle.standardError.write(
-    "[codex-dictate] ready — hold fn to dictate (proxy: \(proxyURL))\n".data(using: .utf8)!)
+    "[codex-dictate] ready — hold fn to dictate (input: \(explicitInputDevice ?? "auto"), fallback: \(fallbackInputDevice ?? "none"), proxy: \(proxyURL))\n"
+        .data(using: .utf8)!)
 app.run()
