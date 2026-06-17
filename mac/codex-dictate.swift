@@ -26,11 +26,13 @@
 //   CODEX_DICTATE_FALLBACK_INPUT_DEVICE (default: none; e.g. MacBook Pro Microphone)
 //   CODEX_DICTATE_SILENCE_RMS_DB (default: -75)
 //   CODEX_DICTATE_FALLBACK_MARGIN_DB (default: 9)
+//   CODEX_DICTATE_MAX_RECORDING_SECONDS (default: 60)
 //   CODEX_DICTATE_KEYCODE    (default 63 = the physical fn / Globe key)
 //   CODEX_DICTATE_LANG       (default auto)
 
 import Cocoa
 import ApplicationServices
+import Darwin
 
 // ---- Config -----------------------------------------------------------------
 
@@ -56,6 +58,7 @@ let explicitInputDevice = cleanEnv("CODEX_DICTATE_INPUT_DEVICE")
 let fallbackInputDevice = cleanEnv("CODEX_DICTATE_FALLBACK_INPUT_DEVICE")
 let silenceRMSDB = doubleEnv("CODEX_DICTATE_SILENCE_RMS_DB", -75)
 let fallbackMarginDB = doubleEnv("CODEX_DICTATE_FALLBACK_MARGIN_DB", 9)
+let maxRecordingSeconds = doubleEnv("CODEX_DICTATE_MAX_RECORDING_SECONDS", 60)
 
 let hotKeyCode: UInt16 = {
     if let v = ProcessInfo.processInfo.environment["CODEX_DICTATE_KEYCODE"],
@@ -95,6 +98,7 @@ struct AudioChoice {
 
 var recordings: [Recording] = []
 var recording = false
+var recordingID = 0
 
 func argsForInput(label: String) -> [String] {
     if label == "default" { return ["-d"] }
@@ -109,8 +113,14 @@ func sanitized(_ label: String) -> String {
 
 func startRecording() {
     work.async {
-        if recording { return }
+        if recording {
+            FileHandle.standardError.write("[codex-dictate] already recording; stopping\n".data(using: .utf8)!)
+            finishRecordingAndTranscribe()
+            return
+        }
         recordings.removeAll()
+        recordingID += 1
+        let thisRecordingID = recordingID
 
         let labels: [String]
         if let explicitInputDevice {
@@ -145,39 +155,62 @@ func startRecording() {
         recording = true
         let inputList = recordings.map(\.label).joined(separator: ", ")
         FileHandle.standardError.write("[codex-dictate] recording… inputs=\(inputList)\n".data(using: .utf8)!)
+
+        work.asyncAfter(deadline: .now() + maxRecordingSeconds) {
+            guard recording, recordingID == thisRecordingID else { return }
+            FileHandle.standardError.write("[codex-dictate] max recording duration reached; stopping\n".data(using: .utf8)!)
+            finishRecordingAndTranscribe()
+        }
     }
 }
 
 func stopRecordingAndTranscribe() {
     work.async {
-        guard recording else { return }
-        recording = false
-
-        let finished = recordings
-        recordings.removeAll()
-        for r in finished {
-            r.process.interrupt()        // SIGINT lets sox finalize the WAV header
-        }
-        for r in finished {
-            r.process.waitUntilExit()
-        }
-
-        guard let choice = chooseAudio(from: finished) else {
-            FileHandle.standardError.write("[codex-dictate] no/too-short audio, skipping\n".data(using: .utf8)!)
-            return
-        }
-        FileHandle.standardError.write(
-            String(format: "[codex-dictate] using input=%@ rms=%.1f dB peak=%.1f dB\n",
-                   choice.label, choice.rmsDB, choice.peakDB).data(using: .utf8)!)
-        guard let text = transcribe(wav: choice.wav)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else {
-            FileHandle.standardError.write("[codex-dictate] empty transcript\n".data(using: .utf8)!)
-            return
-        }
-        FileHandle.standardError.write("[codex-dictate] transcribed chars=\(text.count)\n".data(using: .utf8)!)
-        DispatchQueue.main.async { paste(text) }
+        finishRecordingAndTranscribe()
     }
+}
+
+func finishRecordingAndTranscribe() {
+    guard recording else { return }
+    recording = false
+
+    let finished = recordings
+    recordings.removeAll()
+    for r in finished {
+        r.process.interrupt()        // SIGINT lets sox finalize the WAV header
+    }
+    for r in finished {
+        let deadline = Date().addingTimeInterval(2)
+        while r.process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if r.process.isRunning {
+            FileHandle.standardError.write("[codex-dictate] sox did not stop after SIGINT; terminating\n".data(using: .utf8)!)
+            r.process.terminate()
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        if r.process.isRunning {
+            FileHandle.standardError.write("[codex-dictate] sox did not terminate; killing\n".data(using: .utf8)!)
+            kill(r.process.processIdentifier, SIGKILL)
+        }
+        r.process.waitUntilExit()
+    }
+
+    guard let choice = chooseAudio(from: finished) else {
+        FileHandle.standardError.write("[codex-dictate] no/too-short audio, skipping\n".data(using: .utf8)!)
+        return
+    }
+    FileHandle.standardError.write(
+        String(format: "[codex-dictate] using input=%@ rms=%.1f dB peak=%.1f dB\n",
+               choice.label, choice.rmsDB, choice.peakDB).data(using: .utf8)!)
+    guard let text = transcribe(wav: choice.wav)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+          !text.isEmpty else {
+        FileHandle.standardError.write("[codex-dictate] empty transcript\n".data(using: .utf8)!)
+        return
+    }
+    FileHandle.standardError.write("[codex-dictate] transcribed chars=\(text.count)\n".data(using: .utf8)!)
+    DispatchQueue.main.async { paste(text) }
 }
 
 func chooseAudio(from recordings: [Recording]) -> AudioChoice? {
