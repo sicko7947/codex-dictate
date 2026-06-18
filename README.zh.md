@@ -49,10 +49,25 @@ cd codex-dictate
 首次运行会弹出 **麦克风 / 输入监控 / 辅助功能** 三个权限——全部允许后重启客户端。
 之后 **按住 fn** 说话、松开，转写结果就粘贴到光标处。
 
+装成登录后台代理后，用这几条确认状态：
+
+```bash
+curl -sS http://127.0.0.1:8377/
+launchctl print gui/$(id -u)/io.codexdictate.client | grep 'state = running'
+tail -40 ~/Library/Logs/io.codexdictate.client.log
+```
+
+这个 macOS 方案已经按当前仓库约束做成比较稳的形态，但不是 100% 保证的系统输入法。
+因为 macOS 的输入监控/辅助功能权限、蓝牙麦克风状态、以及 ChatGPT 网页转写后端都在仓库
+控制之外。尤其是 `mac/build.sh` 如果使用 ad-hoc 签名，重编译后 macOS 可能把
+`~/.local/bin/codex-dictate` 当成新的隐私对象。看到小 pill 显示 `Not pasted` 时，
+通常表示转写已经成功，但 macOS 拦住了 Cmd+V；文字可能已经留在剪贴板里。把
+`~/.local/bin/codex-dictate` 重新加入「辅助功能」和「输入监控」，再重启客户端即可。
+
 macOS 客户端做的事和 Linux 流程一一对应：监听**物理 fn 键**（keyCode 63 的
 `NSEvent` 全局监听）→ 按住时用 **`sox`** 录 16kHz 单声道 WAV → 松开后 POST 给同一个
-代理 → 把结果**粘贴**出来（写剪贴板 + Cmd+V，再还原原剪贴板）。不需要 Xcode 工程、
-不打 `.app` 包、不依赖 Hammerspoon/Karabiner——就一个 Swift 文件
+代理 → 把结果**粘贴**出来（写剪贴板 + Cmd+V，再还原原剪贴板）→ 录音/转写时显示屏幕底部
+的小状态 pill。不需要 Xcode 工程、不打 `.app` 包、不依赖 Hammerspoon/Karabiner——就一个 Swift 文件
 （`mac/codex-dictate.swift`）编成单个二进制。
 
 ---

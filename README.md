@@ -87,12 +87,28 @@ First run prompts for **Microphone**, **Input Monitoring**, and **Accessibility*
 approve all three, then restart the client. Now **hold fn**, speak, release: the
 transcript pastes at your cursor.
 
+Verify the login-agent install:
+
+```bash
+curl -sS http://127.0.0.1:8377/
+launchctl print gui/$(id -u)/io.codexdictate.client | grep 'state = running'
+tail -40 ~/Library/Logs/io.codexdictate.client.log
+```
+
+The macOS setup is robust for normal daily use, but it is not a 100% guaranteed
+input method. Rebuilding an ad-hoc signed binary can make macOS stale the
+Accessibility/Input Monitoring grants; if the pill says `Not pasted`, the usual
+meaning is that transcription succeeded but macOS blocked Cmd+V, so the transcript
+was left on the clipboard. Re-add `~/.local/bin/codex-dictate` under Accessibility
+and Input Monitoring, then restart the client agent.
+
 What the macOS client does, mirroring the Linux flow:
 
 - watches the **physical fn key** (a global `NSEvent` monitor on keyCode 63),
 - records 16 kHz mono WAV with **`sox`** while held,
 - POSTs it to the same proxy on release,
 - **pastes** the result (clipboard + Cmd+V, original clipboard restored).
+- shows a compact bottom-center status pill while listening/transcribing.
 
 No Xcode project, no `.app` bundle, no Hammerspoon/Karabiner — one Swift file
 (`mac/codex-dictate.swift`) compiled to a single binary.

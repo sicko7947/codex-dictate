@@ -15,11 +15,31 @@ Only two dependencies beyond the repo: **`sox`** and your existing
 **`~/.codex/auth.json`** (from `codex login` / the Codex desktop app). No Xcode
 project, no app bundle, no Hammerspoon/Karabiner.
 
+## Reliability expectation
+
+This is the most robust shape for this repo's constraints: one Swift binary, no
+app bundle, no Karabiner/Hammerspoon, no OpenAI API key, and login-agent startup.
+It is still not a 100% guaranteed input method because macOS and ChatGPT both sit
+outside the repo:
+
+- macOS can revoke or stale **Input Monitoring** / **Accessibility** grants after
+  rebuilding an ad-hoc signed binary.
+- Bluetooth headset microphones can switch profiles or report as the system
+  default input while producing weak audio.
+- ChatGPT's web transcription endpoint can return temporary **403** / **429**
+  responses even when the local client is healthy.
+
+The client handles the common local failures defensively: it records the default
+input plus a configured fallback input, caps stuck recordings, kills stuck `sox`
+processes, shows a status pill, and leaves successful transcripts on the
+clipboard when macOS blocks auto-paste.
+
 ## Install
 
 ```bash
 brew install go sox           # go only needed to build the proxy
 xcode-select --install        # provides swiftc (skip if already present)
+test -f ~/.codex/auth.json    # if this fails, run: codex login
 
 cd codex-dictate
 ./mac/build.sh                # builds proxy + client into ~/.local/bin
@@ -38,6 +58,28 @@ Then either run them by hand:
 ./mac/install-agents.sh
 ```
 
+Recommended daily setup is the login-agent path. It keeps both processes running
+after login and restarts them if they crash.
+
+## Verify install
+
+Run these after `./mac/install-agents.sh`:
+
+```bash
+curl -sS http://127.0.0.1:8377/
+launchctl print gui/$(id -u)/io.codexdictate.proxy | grep 'state = running'
+launchctl print gui/$(id -u)/io.codexdictate.client | grep 'state = running'
+tail -40 ~/Library/Logs/io.codexdictate.client.log
+```
+
+Expected:
+
+- `curl` prints `{"status":"ok", ...}`.
+- both launch agents are `running`;
+- the client log contains `ready`;
+- when you hold fn, the bottom-center status pill appears and the log shows
+  `recording... inputs=default, MacBook Pro Microphone` when the fallback exists.
+
 ## Permissions (one time)
 
 On first run macOS prompts for these — approve all, then restart the client:
@@ -51,6 +93,11 @@ On first run macOS prompts for these — approve all, then restart the client:
 If you ran it from a terminal, the app needing permission is **your terminal**;
 if via the launch agent, it's **`codex-dictate`**. After approving, restart:
 `launchctl kickstart -k gui/$(id -u)/io.codexdictate.client`.
+
+If `mac/build.sh` says `signing client ad-hoc`, macOS may treat a rebuilt binary
+as a new privacy identity. If fn stops working or text stops pasting after a
+rebuild, remove and re-add `~/.local/bin/codex-dictate` in **Input Monitoring**
+and **Accessibility**, then run the restart command above.
 
 ## Use
 
@@ -102,3 +149,32 @@ Set them in `~/Library/LaunchAgents/io.codexdictate.client.plist`
   re-adding `~/.local/bin/codex-dictate` under Input Monitoring and Accessibility.
 - The proxy is byte-for-byte the same one Linux uses (`proxy/main.go`), including
   the loudness normalization and per-request token refresh.
+
+## Troubleshooting
+
+Start with the live logs:
+
+```bash
+tail -f ~/Library/Logs/io.codexdictate.client.log
+tail -f ~/Library/Logs/io.codexdictate.proxy.log
+```
+
+| Symptom | Meaning / fix |
+|---------|---------------|
+| No pill when holding fn | The client is not seeing the key. Check `launchctl print gui/$(id -u)/io.codexdictate.client`; re-add `~/.local/bin/codex-dictate` under Input Monitoring; ensure fn/Globe is not remapped to another system action. |
+| Pill shows, but no text appears | Check the client log. If it says `Accessibility not trusted; left transcript on clipboard`, transcription worked and macOS blocked Cmd+V. Re-add `~/.local/bin/codex-dictate` under Accessibility and restart the client. |
+| Pill says `Not pasted` | The final output step failed or the transcript was empty. The most common case is Accessibility blocking paste; the transcript may already be on the clipboard. |
+| Long hold seems stuck | The client has `CODEX_DICTATE_MAX_RECORDING_SECONDS` as a safety stop and will interrupt/terminate stuck `sox`; check logs for `max recording duration reached` or `sox did not stop`. |
+| Wrong mic or weak Bluetooth audio | Leave auto mode on. The installer sets `CODEX_DICTATE_FALLBACK_INPUT_DEVICE=MacBook Pro Microphone` when available, so the client records both default and fallback and uses the stronger usable signal. |
+| Proxy returns 403 | ChatGPT/Cloudflare rejected the web transcription request. Open Codex/ChatGPT so auth and browser session are fresh, then try again. |
+| Proxy returns 429 | ChatGPT temporarily rate-limited transcription. Wait for the retry window shown in the proxy response. |
+| Need to disable the UI | Set `CODEX_DICTATE_SHOW_UI=0` in the client LaunchAgent `EnvironmentVariables`, then restart the client. |
+
+For a clean local sanity check after edits:
+
+```bash
+bash mac/test-client-config.sh
+swiftc -parse mac/codex-dictate.swift
+swiftc -typecheck mac/codex-dictate.swift
+cd proxy && go test ./...
+```
