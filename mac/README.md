@@ -71,6 +71,7 @@ your cursor is.
 | `CODEX_DICTATE_FALLBACK_MARGIN_DB` | `9` | fallback must beat default by this many dB before replacing a non-silent default |
 | `CODEX_DICTATE_MAX_RECORDING_SECONDS` | `60` | safety stop if macOS misses the fn release event |
 | `CODEX_DICTATE_TRANSCRIBE_TIMEOUT` | `180` | client-side timeout for longer utterance transcription |
+| `CODEX_DICTATE_SHOW_UI` | `1` | show the small bottom-center recording/transcribing status pill; set `0` to disable |
 | `CODEX_DICTATE_CODESIGN_IDENTITY` | first local identity, else ad-hoc | signing identity used by `mac/build.sh` for stable macOS privacy grants |
 
 Set them in `~/Library/LaunchAgents/io.codexdictate.client.plist`
@@ -90,6 +91,10 @@ Set them in `~/Library/LaunchAgents/io.codexdictate.client.plist`
   transcribes the recording with the stronger usable signal. This keeps Bluetooth
   earbud mics working when they are healthy, while falling back from silent or
   weak Bluetooth input without losing the utterance.
+- **Status pill**: while recording or transcribing, the client shows a compact
+  black-and-white pill near the bottom center of the screen. It is
+  non-interactive, does not take focus, and can be disabled with
+  `CODEX_DICTATE_SHOW_UI=0`.
 - **Privacy grants after rebuilds**: `mac/build.sh` signs the client with the
   first local code-signing identity it can find, or with
   `CODEX_DICTATE_CODESIGN_IDENTITY` when set. If no identity exists, it falls

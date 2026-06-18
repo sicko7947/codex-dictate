@@ -28,6 +28,7 @@
 //   CODEX_DICTATE_FALLBACK_MARGIN_DB (default: 9)
 //   CODEX_DICTATE_MAX_RECORDING_SECONDS (default: 60)
 //   CODEX_DICTATE_TRANSCRIBE_TIMEOUT (default: 180)
+//   CODEX_DICTATE_SHOW_UI   (default: 1; set 0 to disable the bottom status pill)
 //   CODEX_DICTATE_KEYCODE    (default 63 = the physical fn / Globe key)
 //   CODEX_DICTATE_LANG       (default auto)
 
@@ -61,6 +62,7 @@ let silenceRMSDB = doubleEnv("CODEX_DICTATE_SILENCE_RMS_DB", -75)
 let fallbackMarginDB = doubleEnv("CODEX_DICTATE_FALLBACK_MARGIN_DB", 9)
 let maxRecordingSeconds = doubleEnv("CODEX_DICTATE_MAX_RECORDING_SECONDS", 60)
 let transcribeTimeout = doubleEnv("CODEX_DICTATE_TRANSCRIBE_TIMEOUT", 180)
+let showStatusUI = ProcessInfo.processInfo.environment["CODEX_DICTATE_SHOW_UI"] != "0"
 
 let hotKeyCode: UInt16 = {
     if let v = ProcessInfo.processInfo.environment["CODEX_DICTATE_KEYCODE"],
@@ -81,6 +83,185 @@ let recDir = NSTemporaryDirectory()
 // All record start/stop + network work runs on this serial queue so the main
 // run loop (and the fn-key monitor) never blocks on sox or the HTTP round-trip.
 let work = DispatchQueue(label: "codex-dictate.work")
+
+// ---- Status pill UI ---------------------------------------------------------
+
+enum PillState {
+    case recording
+    case transcribing
+    case ready
+    case error
+
+    var label: String {
+        switch self {
+        case .recording: return "Listening"
+        case .transcribing: return "Transcribing"
+        case .ready: return "Done"
+        case .error: return "Not pasted"
+        }
+    }
+}
+
+final class StatusPillView: NSView {
+    private var state: PillState = .recording
+    private var phase = 0
+    private var timer: Timer?
+
+    override var isFlipped: Bool { true }
+
+    func setState(_ newState: PillState) {
+        precondition(Thread.isMainThread)
+        state = newState
+        needsDisplay = true
+        if newState == .recording {
+            startAnimation()
+        } else {
+            stopAnimation()
+        }
+    }
+
+    private func startAnimation() {
+        guard timer == nil else { return }
+        let newTimer = Timer(timeInterval: 0.18, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.phase = (self.phase + 1) % 3
+            self.needsDisplay = true
+        }
+        timer = newTimer
+        RunLoop.main.add(newTimer, forMode: .common)
+    }
+
+    private func stopAnimation() {
+        timer?.invalidate()
+        timer = nil
+        phase = 0
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let bounds = self.bounds
+        NSColor.black.withAlphaComponent(0.86).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
+
+        drawIndicator(in: bounds)
+        drawLabel(in: bounds)
+    }
+
+    private func drawIndicator(in bounds: NSRect) {
+        let baseX: CGFloat = 15
+        let baseY: CGFloat = 12
+        let widths: [CGFloat] = [3, 3, 3]
+        let heights: [CGFloat] = [8, 13, 10]
+
+        for i in 0..<3 {
+            let active = state == .recording && i == phase
+            let height = active ? heights[i] + 5 : heights[i]
+            let rect = NSRect(
+                x: baseX + CGFloat(i) * 6,
+                y: baseY + (18 - height) / 2,
+                width: widths[i],
+                height: height
+            )
+            NSColor.white.withAlphaComponent(active ? 1.0 : 0.62).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5).fill()
+        }
+    }
+
+    private func drawLabel(in bounds: NSRect) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: NSColor.white.withAlphaComponent(0.92)
+        ]
+        let text = NSString(string: state.label)
+        let size = text.size(withAttributes: attrs)
+        let rect = NSRect(x: 42, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
+        text.draw(in: rect, withAttributes: attrs)
+    }
+}
+
+final class StatusPillPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+final class StatusPillController {
+    private let window: NSPanel
+    private let pillView: StatusPillView
+    private var hideWorkItem: DispatchWorkItem?
+
+    init() {
+        precondition(Thread.isMainThread)
+        pillView = StatusPillView(frame: NSRect(x: 0, y: 0, width: 146, height: 36))
+        window = StatusPillPanel(
+            contentRect: pillView.bounds,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = pillView
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.ignoresMouseEvents = true
+        window.level = .statusBar
+        window.hidesOnDeactivate = false
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+    }
+
+    func show(_ state: PillState) {
+        precondition(Thread.isMainThread)
+        hideWorkItem?.cancel()
+        pillView.setState(state)
+        position()
+        window.orderFrontRegardless()
+    }
+
+    func hideSoon(after delay: TimeInterval = 0.75) {
+        precondition(Thread.isMainThread)
+        hideWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.pillView.setState(.ready)
+            self?.window.orderOut(nil)
+        }
+        hideWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    private func position() {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let visible = screen?.visibleFrame else { return }
+        let size = window.frame.size
+        let x = visible.midX - size.width / 2
+        let y = visible.minY + 28
+        window.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+}
+
+var statusPill: StatusPillController?
+
+func statusPillController() -> StatusPillController? {
+    precondition(Thread.isMainThread)
+    guard showStatusUI else { return nil }
+    if statusPill == nil {
+        statusPill = StatusPillController()
+    }
+    return statusPill
+}
+
+func showPill(_ state: PillState) {
+    DispatchQueue.main.async {
+        statusPillController()?.show(state)
+    }
+}
+
+func hidePillSoon(after delay: TimeInterval = 0.75) {
+    DispatchQueue.main.async {
+        statusPillController()?.hideSoon(after: delay)
+    }
+}
 
 // ---- Recording (sox) --------------------------------------------------------
 
@@ -152,11 +333,14 @@ func startRecording() {
 
         guard !recordings.isEmpty else {
             FileHandle.standardError.write("[codex-dictate] no recording inputs available\n".data(using: .utf8)!)
+            showPill(.error)
+            hidePillSoon(after: 1.2)
             return
         }
         recording = true
         let inputList = recordings.map(\.label).joined(separator: ", ")
         FileHandle.standardError.write("[codex-dictate] recording… inputs=\(inputList)\n".data(using: .utf8)!)
+        showPill(.recording)
 
         work.asyncAfter(deadline: .now() + maxRecordingSeconds) {
             guard recording, recordingID == thisRecordingID else { return }
@@ -175,6 +359,7 @@ func stopRecordingAndTranscribe() {
 func finishRecordingAndTranscribe() {
     guard recording else { return }
     recording = false
+    showPill(.transcribing)
 
     let finished = recordings
     recordings.removeAll()
@@ -200,6 +385,8 @@ func finishRecordingAndTranscribe() {
 
     guard let choice = chooseAudio(from: finished) else {
         FileHandle.standardError.write("[codex-dictate] no/too-short audio, skipping\n".data(using: .utf8)!)
+        showPill(.error)
+        hidePillSoon(after: 1.2)
         return
     }
     FileHandle.standardError.write(
@@ -209,6 +396,8 @@ func finishRecordingAndTranscribe() {
             .trimmingCharacters(in: .whitespacesAndNewlines),
           !text.isEmpty else {
         FileHandle.standardError.write("[codex-dictate] empty transcript\n".data(using: .utf8)!)
+        showPill(.error)
+        hidePillSoon(after: 1.2)
         return
     }
     FileHandle.standardError.write("[codex-dictate] transcribed chars=\(text.count)\n".data(using: .utf8)!)
@@ -349,6 +538,8 @@ func paste(_ text: String) {
         FileHandle.standardError.write(
             "[codex-dictate] Accessibility not trusted; left transcript on clipboard\n"
                 .data(using: .utf8)!)
+        showPill(.error)
+        hidePillSoon(after: 1.5)
         return
     }
 
@@ -369,6 +560,8 @@ func paste(_ text: String) {
             pb.setString(saved, forType: .string)
         }
     }
+    showPill(.ready)
+    hidePillSoon()
 }
 
 func requestAccessibilityIfNeeded() {
