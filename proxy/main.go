@@ -30,8 +30,8 @@ import (
 
 const (
 	upstream  = "https://chatgpt.com/backend-api/transcribe"
-	browserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-		"(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+	browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+		"(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 )
 
 func env(k, def string) string {
@@ -122,8 +122,8 @@ func normalizePCM16WAV(b []byte) []byte {
 		return b
 	}
 	const targetRMS = 4129.0 // ~ -18 dBFS for 16-bit
-	const maxGain = 8.0       // ~ +18 dB ceiling so noise floor isn't amplified
-	const peakCeil = 32440.0  // ~ -0.1 dBFS
+	const maxGain = 8.0      // ~ +18 dB ceiling so noise floor isn't amplified
+	const peakCeil = 32440.0 // ~ -0.1 dBFS
 	gain := targetRMS / rms
 	if gain <= 1.0 {
 		return b // already loud enough; leave it
@@ -242,7 +242,14 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	req, _ := http.NewRequest(http.MethodPost, upstream, &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("User-Agent", browserUA)
+	req.Header.Set("User-Agent", env("CODEX_DICTATE_BROWSER_UA", browserUA))
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Origin", "https://chatgpt.com")
+	req.Header.Set("Referer", "https://chatgpt.com/")
+	req.Header.Set("sec-ch-ua", `"Google Chrome";v="149", "Chromium";v="149", "Not_A Brand";v="24"`)
+	req.Header.Set("sec-ch-ua-mobile", "?0")
+	req.Header.Set("sec-ch-ua-platform", `"macOS"`)
 	if accountID != "" {
 		req.Header.Set("chatgpt-account-id", accountID)
 	}
@@ -254,6 +261,10 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("[proxy] upstream status=%d bytes=%d preview=%q",
+			resp.StatusCode, len(out), preview(out, 300))
+	}
 
 	// Pass body straight through; Voxtype expects {"text": "..."}.
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
@@ -261,6 +272,13 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(out)
+}
+
+func preview(b []byte, n int) string {
+	if len(b) <= n {
+		return string(b)
+	}
+	return string(b[:n]) + "..."
 }
 
 // createFilePart writes a file part while preserving the original Content-Type
@@ -279,12 +297,17 @@ func createFilePart(mw *multipart.Writer, name, ct string) (io.Writer, error) {
 
 func main() {
 	addr := env("CODEX_DICTATE_PROXY_HOST", "127.0.0.1") + ":" + env("CODEX_DICTATE_PROXY_PORT", "8377")
-	if t := os.Getenv("CODEX_DICTATE_PROXY_TIMEOUT"); t != "" {
-		if secs, err := strconv.Atoi(t); err == nil {
-			httpClient.Timeout = time.Duration(secs) * time.Second
-		}
-	}
+	httpClient.Timeout = time.Duration(envInt("CODEX_DICTATE_PROXY_TIMEOUT", 180)) * time.Second
 	http.HandleFunc("/", handle)
 	log.Printf("[proxy] listening on http://%s -> %s", addr, upstream)
 	log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+func envInt(k string, def int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
 }

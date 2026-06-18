@@ -202,12 +202,14 @@ on macOS):
 |----------|---------|---------|
 | `CODEX_DICTATE_PROXY_PORT` | `8377` | listen port (also update the client endpoint) |
 | `CODEX_DICTATE_PROXY_HOST` | `127.0.0.1` | listen address (keep it local!) |
-| `CODEX_DICTATE_PROXY_TIMEOUT` | `120` | upstream timeout (seconds) |
+| `CODEX_DICTATE_PROXY_TIMEOUT` | `180` | upstream timeout (seconds) |
+| `CODEX_DICTATE_BROWSER_UA` | macOS Chrome UA | browser user-agent sent to ChatGPT |
 | `CODEX_DICTATE_PROXY_NO_NORMALIZE` | unset | set to `1` to disable loudness normalization |
 | `CODEX_DICTATE_PROXY_DEBUG_DIR` | unset | set to a dir (e.g. `/tmp`) to dump the exact audio sent, for debugging |
 
 **macOS client** (`codex-dictate`) env vars: `CODEX_DICTATE_KEYCODE` (default `63` = fn),
-`CODEX_DICTATE_LANG` (default `auto`), `CODEX_DICTATE_PROXY_URL`, `CODEX_DICTATE_SOX`. See
+`CODEX_DICTATE_LANG` (default `auto`), `CODEX_DICTATE_PROXY_URL`, `CODEX_DICTATE_SOX`,
+`CODEX_DICTATE_TRANSCRIBE_TIMEOUT`. See
 [mac/README.md](mac/README.md).
 
 **Mic tip:** a wired/USB mic beats a Bluetooth headset for dictation by a wide

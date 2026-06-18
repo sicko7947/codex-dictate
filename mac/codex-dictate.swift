@@ -27,6 +27,7 @@
 //   CODEX_DICTATE_SILENCE_RMS_DB (default: -75)
 //   CODEX_DICTATE_FALLBACK_MARGIN_DB (default: 9)
 //   CODEX_DICTATE_MAX_RECORDING_SECONDS (default: 60)
+//   CODEX_DICTATE_TRANSCRIBE_TIMEOUT (default: 180)
 //   CODEX_DICTATE_KEYCODE    (default 63 = the physical fn / Globe key)
 //   CODEX_DICTATE_LANG       (default auto)
 
@@ -59,6 +60,7 @@ let fallbackInputDevice = cleanEnv("CODEX_DICTATE_FALLBACK_INPUT_DEVICE")
 let silenceRMSDB = doubleEnv("CODEX_DICTATE_SILENCE_RMS_DB", -75)
 let fallbackMarginDB = doubleEnv("CODEX_DICTATE_FALLBACK_MARGIN_DB", 9)
 let maxRecordingSeconds = doubleEnv("CODEX_DICTATE_MAX_RECORDING_SECONDS", 60)
+let transcribeTimeout = doubleEnv("CODEX_DICTATE_TRANSCRIBE_TIMEOUT", 180)
 
 let hotKeyCode: UInt16 = {
     if let v = ProcessInfo.processInfo.environment["CODEX_DICTATE_KEYCODE"],
@@ -299,13 +301,13 @@ func transcribe(wav: Data) -> String? {
     guard let url = URL(string: proxyURL) else { return nil }
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
-    req.timeoutInterval = 60
+    req.timeoutInterval = transcribeTimeout
     req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
     req.httpBody = body
 
     let sem = DispatchSemaphore(value: 0)
     var result: String?
-    URLSession.shared.dataTask(with: req) { data, _, err in
+    URLSession.shared.dataTask(with: req) { data, response, err in
         defer { sem.signal() }
         if let err = err {
             FileHandle.standardError.write("[codex-dictate] proxy error: \(err)\n".data(using: .utf8)!)
@@ -314,14 +316,25 @@ func transcribe(wav: Data) -> String? {
         guard let data = data,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let t = obj["text"] as? String else {
-            let s = data.flatMap { String(data: $0, encoding: .utf8) } ?? "<no body>"
-            FileHandle.standardError.write("[codex-dictate] bad proxy response: \(s)\n".data(using: .utf8)!)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let bodyPreview = preview(data)
+            FileHandle.standardError.write(
+                "[codex-dictate] bad proxy response status=\(status) bodyPreview=\(bodyPreview)\n"
+                    .data(using: .utf8)!)
             return
         }
         result = t
     }.resume()
     sem.wait()
     return result
+}
+
+func preview(_ data: Data?, limit: Int = 500) -> String {
+    guard let data, !data.isEmpty else { return "<no body>" }
+    let prefix = data.prefix(limit)
+    let text = String(data: prefix, encoding: .utf8) ?? "<non-utf8 body>"
+    let suffix = data.count > limit ? "…<\(data.count - limit) bytes omitted>" : ""
+    return text.replacingOccurrences(of: "\n", with: "\\n") + suffix
 }
 
 // ---- Paste at the cursor (clipboard + Cmd+V, then restore) ------------------

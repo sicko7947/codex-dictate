@@ -70,6 +70,7 @@ your cursor is.
 | `CODEX_DICTATE_SILENCE_RMS_DB` | `-75` | default input below this RMS is treated as effectively silent |
 | `CODEX_DICTATE_FALLBACK_MARGIN_DB` | `9` | fallback must beat default by this many dB before replacing a non-silent default |
 | `CODEX_DICTATE_MAX_RECORDING_SECONDS` | `60` | safety stop if macOS misses the fn release event |
+| `CODEX_DICTATE_TRANSCRIBE_TIMEOUT` | `180` | client-side timeout for longer utterance transcription |
 | `CODEX_DICTATE_CODESIGN_IDENTITY` | first local identity, else ad-hoc | signing identity used by `mac/build.sh` for stable macOS privacy grants |
 
 Set them in `~/Library/LaunchAgents/io.codexdictate.client.plist`
