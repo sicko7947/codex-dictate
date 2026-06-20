@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# voxtype post-processing hook: paste the transcript into the focused window,
+# choosing the paste key by window class so dictation "just works" anywhere:
+#   - standalone terminal emulators  -> Ctrl+Shift+V  (their paste key)
+#   - everything else (GUI, browsers, editors, VSCode incl. its terminal)
+#                                    -> Ctrl+V
+#
+# Why this instead of voxtype's built-in --paste: --paste uses ONE fixed key
+# for every window, which can't satisfy both terminals (Ctrl+Shift+V) and GUI
+# apps (Ctrl+V) at once. And we avoid keystroke "type" mode entirely: injecting
+# non-ASCII text (Chinese, etc.) through the virtual keyboard makes wlroots
+# compositors fire stray GLOBAL keybinds (screenshot, calculator, media keys).
+#
+# Wiring (see config/voxtype/config.toml):
+#   [output] mode = "clipboard"            # daemon copies, does NOT type/paste
+#   [output.post_process] command = "<this script>"
+# voxtype runs this BEFORE its own output, so we set the clipboard and paste
+# here; the daemon's later clipboard write is the same text (harmless).
+#
+# Robustness: ALWAYS exits 0. On any failure the text still sits on the
+# clipboard for a manual paste — better than letting voxtype type the raw
+# transcript and trip compositor keybinds.
+#
+# Needs: wl-clipboard (wl-copy), wtype, and one of: hyprctl (Hyprland) /
+# swaymsg+jq (Sway). Without a supported compositor it falls back to Ctrl+V.
+
+set +e
+
+raw="$(cat)"
+
+# Optional terminology cleanup if the user installed voxtype-cleanup.
+clean="$raw"
+if [ -x "$HOME/.local/bin/voxtype-cleanup" ]; then
+  c="$(printf '%s' "$raw" | "$HOME/.local/bin/voxtype-cleanup")"
+  [ -n "$c" ] && clean="$c"
+fi
+
+if [ -z "$clean" ]; then
+  printf '%s' "$clean"
+  exit 0
+fi
+
+printf '%s' "$clean" | wl-copy 2>/dev/null
+
+# Resolve the focused window's app class across compositors.
+class=""
+if command -v hyprctl >/dev/null 2>&1; then
+  class="$(hyprctl activewindow -j 2>/dev/null | jq -r '.class // empty' 2>/dev/null)"
+elif command -v swaymsg >/dev/null 2>&1; then
+  class="$(swaymsg -t get_tree 2>/dev/null | jq -r '.. | select(.focused? == true) | (.app_id // .window_properties.class // empty)' 2>/dev/null | head -n1)"
+fi
+
+case "${class,,}" in
+  alacritty|foot|kitty|ghostty|com.mitchellh.ghostty|org.wezfurlong.wezterm|wezterm|xterm|st|urxvt|rio|wterm|contour|konsole|gnome-terminal|tilix|terminator)
+    # Terminal emulators: Ctrl+Shift+V
+    wtype -M ctrl -M shift -k v -m shift -m ctrl 2>/dev/null
+    ;;
+  *)
+    # GUI apps, browsers, editors, VSCode (and its integrated terminal): Ctrl+V
+    wtype -M ctrl -k v -m ctrl 2>/dev/null
+    ;;
+esac
+
+# Echo cleaned text so the daemon's clipboard output is the same text.
+printf '%s' "$clean"
+exit 0

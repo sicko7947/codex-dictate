@@ -168,10 +168,12 @@ Speak a sentence, release, and the transcript is typed wherever your cursor is.
 | Path | What |
 |------|------|
 | `~/.local/bin/codex-dictate-proxy` | the Go proxy binary |
-| `~/.config/voxtype/config.toml` | Voxtype set to `mode = "remote"` → the proxy |
+| `~/.local/bin/voxtype-paste-focus` | focus-aware paste hook (Ctrl+Shift+V in terminals, Ctrl+V elsewhere) |
+| `~/.config/voxtype/config.toml` | Voxtype set to `mode = "remote"` (transcribe) + `mode = "clipboard"` output → paste hook |
 | `~/.config/systemd/user/codex-dictate-proxy.service` | runs the proxy, autostarts with your session |
 | `~/.config/systemd/user/voxtype.service.d/10-codex-proxy.conf` | starts the proxy before Voxtype |
 | `~/.config/systemd/user/voxtype.service.d/20-no-eager.conf` | drops `--eager-processing` (see below) |
+| `~/.config/systemd/user/voxtype.service.d/30-restart.conf` | `Restart=always` so a session bounce can't leave it dead |
 
 Nothing here contains a secret. Your ChatGPT token stays in `~/.codex/auth.json`
 and is read at runtime only.
@@ -263,7 +265,7 @@ systemctl --user set-environment CODEX_DICTATE_PROXY_DEBUG_DIR=/tmp   # dump sen
 | **(Linux) garbled text at sentence seams** | `--eager-processing` still on — confirm `20-no-eager.conf` is installed and `systemctl --user daemon-reload && systemctl --user restart voxtype.service`. |
 | **(Linux) nothing types** | needs `wtype` (Wayland) or `ydotool`. Install one. |
 | **(Linux) nothing happens at all** | the proxy died (it autostarts with your session but a session bounce can stop it). Check `curl -s http://127.0.0.1:8377/` — no reply means dead; `systemctl --user restart codex-dictate-proxy.service`. The shipped unit uses `Restart=always` so this should self-heal. |
-| **(Linux) random shortcuts fire (screenshot, calculator…) while text appears** | wlroots compositors route the `type` driver's synthetic non-ASCII keystrokes through the global keybind layer. Use paste output: the `20-no-eager.conf` drop-in runs the daemon with `--paste --restore-clipboard`. In raw terminals add `--paste-keys ctrl+shift+v`. |
+| **(Linux) random shortcuts fire (screenshot, calculator…) while text appears** | wlroots compositors route the `type` driver's synthetic non-ASCII keystrokes through the global keybind layer. The default setup avoids this: `config.toml` uses `mode = "clipboard"` + the `voxtype-paste-focus` hook, which pastes into the focused window (Ctrl+Shift+V in terminals, Ctrl+V elsewhere). Confirm `~/.local/bin/voxtype-paste-focus` is installed and `mode = "clipboard"`. |
 | **Quiet / missed words** | Bluetooth mic, or input gain low. Use a wired mic. |
 
 ---

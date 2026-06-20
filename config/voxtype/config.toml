@@ -36,22 +36,30 @@ model = "large-v3"
 language = "auto"
 translate = false
 
+# clipboard mode: the daemon only copies the transcript; it does NOT type or
+# paste. Pasting is done by the post_process hook (voxtype-paste-focus), which
+# picks the paste key from the focused window — Ctrl+Shift+V in terminals,
+# Ctrl+V everywhere else — so dictation lands in any input.
+#
+# Why not keystroke "type" mode: injecting non-ASCII text (Chinese, etc.) via
+# the virtual keyboard makes wlroots compositors fire stray single-key binds
+# (screenshot, calculator, media keys). Clipboard + a single Ctrl+V/Ctrl+Shift+V
+# combo (a modified key, bound to nothing) avoids that entirely.
 [output]
-# "type" simulates keystrokes at the cursor; needs wtype (Wayland) or ydotool.
-# NOTE (wlroots/Hyprland/Sway): keystroke injection of non-ASCII text (Chinese,
-# etc.) can make the compositor fire stray single-key binds (screenshot, media
-# keys). The systemd drop-in 20-no-eager.conf runs the daemon with
-# `--paste --restore-clipboard`, which forces clipboard + Ctrl+V output and
-# overrides this `mode` — that's the recommended setup. See that file for the
-# terminal Ctrl+V caveat.
-mode = "type"
-fallback_to_clipboard = true
+mode = "clipboard"
+
+# No keystroke fallback: if the paste hook fails the text still sits on the
+# clipboard for a manual paste — better than typing raw text and tripping binds.
+fallback_to_clipboard = false
 type_delay_ms = 0
 
-# Optional: pipe the transcript through your own cleanup command before typing.
-# [output.post_process]
-# command = "/home/youruser/.local/bin/voxtype-cleanup"
-# timeout_ms = 1000
+# Paste hook: cleans the transcript (if you have a voxtype-cleanup helper) and
+# pastes it into the focused window. setup.sh installs the script to
+# ~/.local/bin and rewrites the __HOME__ placeholder below to your real $HOME
+# (voxtype does not expand ~ or env vars in this path).
+[output.post_process]
+command = "__HOME__/.local/bin/voxtype-paste-focus"
+timeout_ms = 3000
 
 [output.notification]
 on_recording_start = false

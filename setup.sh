@@ -93,7 +93,16 @@ if [ -f "$VOX_CFG_DIR/config.toml" ]; then
   c_y "  (If you had custom settings, merge them back from the .bak file.)"
 fi
 install -m 0644 "$REPO_DIR/config/voxtype/config.toml" "$VOX_CFG_DIR/config.toml"
+# config.toml references the paste hook by absolute path (voxtype does not
+# expand ~ or env vars there), so bake in the real $HOME.
+sed -i "s|__HOME__|$HOME|g" "$VOX_CFG_DIR/config.toml"
 c_g "  wrote $VOX_CFG_DIR/config.toml"
+
+# Focus-aware paste hook: pastes the transcript into the focused window with the
+# right key per app (Ctrl+Shift+V in terminals, Ctrl+V elsewhere). Avoids the
+# keystroke-injection bug where non-ASCII text trips compositor keybinds.
+install -m 0755 "$REPO_DIR/config/voxtype/voxtype-paste-focus" "$BIN_DIR/voxtype-paste-focus"
+c_g "  wrote $BIN_DIR/voxtype-paste-focus"
 
 # ---------------------------------------------------------- systemd units ---
 step "Installing systemd user services"
@@ -110,7 +119,8 @@ fi
 
 install -m 0644 "$REPO_DIR/config/systemd/voxtype.service.d/10-codex-proxy.conf" "$UNIT_DIR/voxtype.service.d/10-codex-proxy.conf"
 install -m 0644 "$REPO_DIR/config/systemd/voxtype.service.d/20-no-eager.conf"   "$UNIT_DIR/voxtype.service.d/20-no-eager.conf"
-c_g "  wrote voxtype.service.d/{10-codex-proxy,20-no-eager}.conf"
+install -m 0644 "$REPO_DIR/config/systemd/voxtype.service.d/30-restart.conf"    "$UNIT_DIR/voxtype.service.d/30-restart.conf"
+c_g "  wrote voxtype.service.d/{10-codex-proxy,20-no-eager,30-restart}.conf"
 
 step "Enabling and starting services"
 systemctl --user daemon-reload

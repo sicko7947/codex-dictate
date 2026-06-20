@@ -175,10 +175,12 @@ cd codex-dictate
 | 路径 | 是什么 |
 |------|--------|
 | `~/.local/bin/codex-dictate-proxy` | Go 代理程序 |
-| `~/.config/voxtype/config.toml` | Voxtype 设为 `mode = "remote"` → 指向代理 |
+| `~/.local/bin/voxtype-paste-focus` | 聚焦感知粘贴钩子(终端 Ctrl+Shift+V、其它 Ctrl+V) |
+| `~/.config/voxtype/config.toml` | Voxtype 转写设 `mode = "remote"` + 输出设 `mode = "clipboard"` → 粘贴钩子 |
 | `~/.config/systemd/user/codex-dictate-proxy.service` | 运行代理，随会话自启 |
 | `~/.config/systemd/user/voxtype.service.d/10-codex-proxy.conf` | 让代理先于 Voxtype 启动 |
 | `~/.config/systemd/user/voxtype.service.d/20-no-eager.conf` | 去掉 `--eager-processing`（见下） |
+| `~/.config/systemd/user/voxtype.service.d/30-restart.conf` | `Restart=always`，会话 bounce 也不会让它死掉 |
 
 这里面**没有任何密钥**。你的 ChatGPT token 一直留在 `~/.codex/auth.json`，只在运行时被读取。
 
@@ -230,7 +232,7 @@ systemctl --user set-environment CODEX_DICTATE_PROXY_DEBUG_DIR=/tmp   # 或改 u
 | 声音小/漏词 | 蓝牙麦，或输入增益低。换有线麦；查 `pactl`。 |
 | 不打字 | 需要 `wtype`（Wayland）或 `ydotool`，装一个。 |
 | 完全没反应 | 代理挂了（它随会话自启，但会话重启可能把它停掉）。`curl -s http://127.0.0.1:8377/` 没回应就是死了，`systemctl --user restart codex-dictate-proxy.service`。仓库里的单元用了 `Restart=always`，正常会自愈。 |
-| 出文字时乱触发快捷键(截图、计算器…) | wlroots 合成器会把 `type` 驱动注入的非 ASCII 合成按键也送进全局快捷键层。改用粘贴输出：`20-no-eager.conf` 里让守护进程带 `--paste --restore-clipboard` 启动。在终端里追加 `--paste-keys ctrl+shift+v`。 |
+| 出文字时乱触发快捷键(截图、计算器…) | wlroots 合成器会把 `type` 驱动注入的非 ASCII 合成按键也送进全局快捷键层。默认配置已规避：`config.toml` 用 `mode = "clipboard"` + `voxtype-paste-focus` 钩子,按焦点窗口粘贴(终端 Ctrl+Shift+V、其它 Ctrl+V)。确认装了 `~/.local/bin/voxtype-paste-focus` 且 `mode = "clipboard"`。 |
 
 ---
 
