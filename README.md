@@ -262,6 +262,8 @@ systemctl --user set-environment CODEX_DICTATE_PROXY_DEBUG_DIR=/tmp   # dump sen
 | **(macOS) no audio** | grant **Microphone**; check `sox` is installed (`brew install sox`). |
 | **(Linux) garbled text at sentence seams** | `--eager-processing` still on — confirm `20-no-eager.conf` is installed and `systemctl --user daemon-reload && systemctl --user restart voxtype.service`. |
 | **(Linux) nothing types** | needs `wtype` (Wayland) or `ydotool`. Install one. |
+| **(Linux) nothing happens at all** | the proxy died (it autostarts with your session but a session bounce can stop it). Check `curl -s http://127.0.0.1:8377/` — no reply means dead; `systemctl --user restart codex-dictate-proxy.service`. The shipped unit uses `Restart=always` so this should self-heal. |
+| **(Linux) random shortcuts fire (screenshot, calculator…) while text appears** | wlroots compositors route the `type` driver's synthetic non-ASCII keystrokes through the global keybind layer. Use paste output: the `20-no-eager.conf` drop-in runs the daemon with `--paste --restore-clipboard`. In raw terminals add `--paste-keys ctrl+shift+v`. |
 | **Quiet / missed words** | Bluetooth mic, or input gain low. Use a wired mic. |
 
 ---

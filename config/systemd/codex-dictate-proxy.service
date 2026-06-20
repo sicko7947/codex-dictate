@@ -7,7 +7,13 @@ After=graphical-session.target
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/codex-dictate-proxy
-Restart=on-failure
+# Restart=always (not on-failure): this unit is PartOf=graphical-session.target,
+# so a session bounce (relogin, compositor restart) sends a clean SIGTERM. With
+# on-failure systemd treats that as a normal stop and does NOT revive it, leaving
+# the proxy dead and dictation silently broken until the next manual start.
+# "always" brings it back; it still stays down on a real logout (the whole
+# target stops as one transaction).
+Restart=always
 RestartSec=3
 # Uncomment to disable the loudness normalization or watch the audio it sends:
 # Environment=CODEX_DICTATE_PROXY_NO_NORMALIZE=1

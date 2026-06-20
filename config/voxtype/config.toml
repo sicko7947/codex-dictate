@@ -38,6 +38,12 @@ translate = false
 
 [output]
 # "type" simulates keystrokes at the cursor; needs wtype (Wayland) or ydotool.
+# NOTE (wlroots/Hyprland/Sway): keystroke injection of non-ASCII text (Chinese,
+# etc.) can make the compositor fire stray single-key binds (screenshot, media
+# keys). The systemd drop-in 20-no-eager.conf runs the daemon with
+# `--paste --restore-clipboard`, which forces clipboard + Ctrl+V output and
+# overrides this `mode` — that's the recommended setup. See that file for the
+# terminal Ctrl+V caveat.
 mode = "type"
 fallback_to_clipboard = true
 type_delay_ms = 0

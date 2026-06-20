@@ -229,6 +229,8 @@ systemctl --user set-environment CODEX_DICTATE_PROXY_DEBUG_DIR=/tmp   # 或改 u
 | 句子接缝处文字乱 | `--eager-processing` 还开着——确认装了 `20-no-eager.conf`，并 `systemctl --user daemon-reload && systemctl --user restart voxtype.service`。 |
 | 声音小/漏词 | 蓝牙麦，或输入增益低。换有线麦；查 `pactl`。 |
 | 不打字 | 需要 `wtype`（Wayland）或 `ydotool`，装一个。 |
+| 完全没反应 | 代理挂了（它随会话自启，但会话重启可能把它停掉）。`curl -s http://127.0.0.1:8377/` 没回应就是死了，`systemctl --user restart codex-dictate-proxy.service`。仓库里的单元用了 `Restart=always`，正常会自愈。 |
+| 出文字时乱触发快捷键(截图、计算器…) | wlroots 合成器会把 `type` 驱动注入的非 ASCII 合成按键也送进全局快捷键层。改用粘贴输出：`20-no-eager.conf` 里让守护进程带 `--paste --restore-clipboard` 启动。在终端里追加 `--paste-keys ctrl+shift+v`。 |
 
 ---
 
