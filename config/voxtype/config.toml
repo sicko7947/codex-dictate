@@ -15,7 +15,8 @@ enabled = false
 device = "default"
 # Whisper consumes 16 kHz mono; leave this unless you know better.
 sample_rate = 16000
-max_duration_secs = 60
+# ponytail: keep a safety cap; raise it if real use needs more than 15 minutes.
+max_duration_secs = 900
 pause_media = true
 
 [whisper]
@@ -27,7 +28,7 @@ mode = "remote"
 remote_endpoint = "http://127.0.0.1:8377"
 remote_model = "whisper-1"
 remote_api_key = "proxy-ignored"   # proxy uses ~/.codex/auth.json; this is ignored
-remote_timeout_secs = 60
+remote_timeout_secs = 900
 
 # Only used when mode = "local". Safe to leave; ignored in remote mode.
 model = "large-v3"

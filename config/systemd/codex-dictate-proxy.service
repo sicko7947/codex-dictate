@@ -7,6 +7,7 @@ After=graphical-session.target
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/codex-dictate-proxy
+Environment=CODEX_DICTATE_PROXY_TIMEOUT=900
 # Restart=always (not on-failure): this unit is PartOf=graphical-session.target,
 # so a session bounce (relogin, compositor restart) sends a clean SIGTERM. With
 # on-failure systemd treats that as a normal stop and does NOT revive it, leaving

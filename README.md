@@ -220,7 +220,7 @@ on macOS):
 |----------|---------|---------|
 | `CODEX_DICTATE_PROXY_PORT` | `8377` | listen port (also update the client endpoint) |
 | `CODEX_DICTATE_PROXY_HOST` | `127.0.0.1` | listen address (keep it local!) |
-| `CODEX_DICTATE_PROXY_TIMEOUT` | `180` | upstream timeout (seconds) |
+| `CODEX_DICTATE_PROXY_TIMEOUT` | `900` | upstream timeout (seconds) |
 | `CODEX_DICTATE_BROWSER_UA` | macOS Chrome UA | browser user-agent sent to ChatGPT |
 | `CODEX_DICTATE_PROXY_NO_NORMALIZE` | unset | set to `1` to disable loudness normalization |
 | `CODEX_DICTATE_PROXY_DEBUG_DIR` | unset | set to a dir (e.g. `/tmp`) to dump the exact audio sent, for debugging |

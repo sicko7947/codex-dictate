@@ -200,6 +200,7 @@ Voxtype 的 `--eager-processing` 会**在你还在说话时就分块转写**（�
 |------|------|------|
 | `CODEX_DICTATE_PROXY_PORT` | `8377` | 监听端口（同时要改 `remote_endpoint`） |
 | `CODEX_DICTATE_PROXY_HOST` | `127.0.0.1` | 监听地址（**保持本地！**） |
+| `CODEX_DICTATE_PROXY_TIMEOUT` | `900` | 上游转写超时（秒） |
 | `CODEX_DICTATE_PROXY_NO_NORMALIZE` | 未设 | 设为 `1` 关闭音量归一化 |
 | `CODEX_DICTATE_PROXY_DEBUG_DIR` | 未设 | 设成某目录（如 `/tmp`）会把实际发出的音频 dump 下来，方便排查 |
 

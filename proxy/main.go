@@ -28,11 +28,8 @@ import (
 	"time"
 )
 
-const (
-	upstream  = "https://chatgpt.com/backend-api/transcribe"
-	browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-		"(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
-)
+const browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+	"(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
@@ -64,6 +61,7 @@ func loadAuth() (token, accountID string, err error) {
 	return a.Tokens.AccessToken, a.Tokens.AccountID, nil
 }
 
+var upstreamURL = "https://chatgpt.com/backend-api/transcribe"
 var httpClient = &http.Client{Timeout: 120 * time.Second}
 
 // normalizePCM16WAV lifts a quiet/inconsistent mono PCM16 WAV to a target speech
@@ -159,7 +157,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		writeJSON(w, 200, map[string]string{"status": "ok", "upstream": upstream})
+		writeJSON(w, 200, map[string]string{"status": "ok", "upstream": upstreamURL})
 		return
 	}
 	if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "audio/transcriptions") {
@@ -239,28 +237,11 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = mw.Close()
 
-	req, _ := http.NewRequest(http.MethodPost, upstream, &body)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("User-Agent", env("CODEX_DICTATE_BROWSER_UA", browserUA))
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Origin", "https://chatgpt.com")
-	req.Header.Set("Referer", "https://chatgpt.com/")
-	req.Header.Set("sec-ch-ua", `"Google Chrome";v="149", "Chromium";v="149", "Not_A Brand";v="24"`)
-	req.Header.Set("sec-ch-ua-mobile", "?0")
-	req.Header.Set("sec-ch-ua-platform", `"macOS"`)
-	if accountID != "" {
-		req.Header.Set("chatgpt-account-id", accountID)
-	}
-
-	resp, err := httpClient.Do(req)
+	resp, out, err := doUpstream(body.Bytes(), mw.FormDataContentType(), token, accountID)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": "upstream: " + err.Error()})
 		return
 	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("[proxy] upstream status=%d bytes=%d preview=%q",
 			resp.StatusCode, len(out), preview(out, 300))
@@ -272,6 +253,51 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(out)
+}
+
+func doUpstream(body []byte, contentType, token, accountID string) (*http.Response, []byte, error) {
+	const attempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		req, err := http.NewRequest(http.MethodPost, upstreamURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, nil, err
+		}
+		req.Header.Set("Content-Type", contentType)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("User-Agent", env("CODEX_DICTATE_BROWSER_UA", browserUA))
+		req.Header.Set("Accept", "application/json, text/plain, */*")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		req.Header.Set("Origin", "https://chatgpt.com")
+		req.Header.Set("Referer", "https://chatgpt.com/")
+		req.Header.Set("sec-ch-ua", `"Google Chrome";v="149", "Chromium";v="149", "Not_A Brand";v="24"`)
+		req.Header.Set("sec-ch-ua-mobile", "?0")
+		req.Header.Set("sec-ch-ua-platform", `"macOS"`)
+		if accountID != "" {
+			req.Header.Set("chatgpt-account-id", accountID)
+		}
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			if attempt < attempts {
+				log.Printf("[proxy] upstream attempt %d/%d failed: %v", attempt, attempts, err)
+				continue
+			}
+			return nil, nil, err
+		}
+		out, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if !retryableStatus(resp.StatusCode) || attempt == attempts {
+			return resp, out, nil
+		}
+		log.Printf("[proxy] upstream attempt %d/%d returned %d; retrying", attempt, attempts, resp.StatusCode)
+	}
+	return nil, nil, lastErr
+}
+
+func retryableStatus(code int) bool {
+	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
 }
 
 func preview(b []byte, n int) string {
@@ -297,9 +323,9 @@ func createFilePart(mw *multipart.Writer, name, ct string) (io.Writer, error) {
 
 func main() {
 	addr := env("CODEX_DICTATE_PROXY_HOST", "127.0.0.1") + ":" + env("CODEX_DICTATE_PROXY_PORT", "8377")
-	httpClient.Timeout = time.Duration(envInt("CODEX_DICTATE_PROXY_TIMEOUT", 180)) * time.Second
+	httpClient.Timeout = time.Duration(envInt("CODEX_DICTATE_PROXY_TIMEOUT", 900)) * time.Second
 	http.HandleFunc("/", handle)
-	log.Printf("[proxy] listening on http://%s -> %s", addr, upstream)
+	log.Printf("[proxy] listening on http://%s -> %s", addr, upstreamURL)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
