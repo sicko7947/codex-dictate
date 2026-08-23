@@ -104,6 +104,12 @@ c_g "  wrote $VOX_CFG_DIR/config.toml"
 install -m 0755 "$REPO_DIR/config/voxtype/voxtype-paste-focus" "$BIN_DIR/voxtype-paste-focus"
 c_g "  wrote $BIN_DIR/voxtype-paste-focus"
 
+# Select a safe dynamic default input immediately before each recording. This
+# avoids Bluetooth SCO when a wired input is present without hard-coding one
+# particular USB microphone.
+install -m 0755 "$REPO_DIR/config/voxtype/voxtype-select-input" "$BIN_DIR/voxtype-select-input"
+c_g "  wrote $BIN_DIR/voxtype-select-input"
+
 # ---------------------------------------------------------- systemd units ---
 step "Installing systemd user services"
 mkdir -p "$UNIT_DIR/voxtype.service.d"
@@ -117,6 +123,22 @@ if [ ! -f "$UNIT_DIR/voxtype.service" ] && ! systemctl --user cat voxtype.servic
   voxtype setup systemd >/dev/null 2>&1 || c_y "  (could not auto-create; the drop-in still applies if you add one later)"
 fi
 
+# Older local installs used voxtype-codex-proxy.service and the same drop-in
+# filename. Migrate those files before installing the canonical unit/drop-in;
+# otherwise both proxies can be pulled in and race for 127.0.0.1:8377.
+LEGACY_UNIT="$UNIT_DIR/voxtype-codex-proxy.service"
+LEGACY_DROPIN="$UNIT_DIR/voxtype.service.d/10-codex-proxy.conf"
+if [ -f "$LEGACY_UNIT" ]; then
+  step "Migrating the legacy Voxtype proxy service"
+  systemctl --user disable --now voxtype-codex-proxy.service 2>/dev/null || true
+  mv "$LEGACY_UNIT" "$LEGACY_UNIT.legacy-$STAMP"
+  c_y "  moved $LEGACY_UNIT -> $LEGACY_UNIT.legacy-$STAMP"
+fi
+if [ -f "$LEGACY_DROPIN" ] && grep -q "voxtype-codex-proxy.service" "$LEGACY_DROPIN"; then
+  mv "$LEGACY_DROPIN" "$LEGACY_DROPIN.legacy-$STAMP"
+  c_y "  moved legacy Voxtype drop-in -> $LEGACY_DROPIN.legacy-$STAMP"
+fi
+
 install -m 0644 "$REPO_DIR/config/systemd/voxtype.service.d/10-codex-proxy.conf" "$UNIT_DIR/voxtype.service.d/10-codex-proxy.conf"
 install -m 0644 "$REPO_DIR/config/systemd/voxtype.service.d/20-no-eager.conf"   "$UNIT_DIR/voxtype.service.d/20-no-eager.conf"
 install -m 0644 "$REPO_DIR/config/systemd/voxtype.service.d/30-restart.conf"    "$UNIT_DIR/voxtype.service.d/30-restart.conf"
@@ -124,7 +146,10 @@ c_g "  wrote voxtype.service.d/{10-codex-proxy,20-no-eager,30-restart}.conf"
 
 step "Enabling and starting services"
 systemctl --user daemon-reload
-systemctl --user enable --now codex-dictate-proxy.service
+# A rebuild can replace an already-running binary; --now alone does not
+# restart an active unit, so explicitly restart the canonical proxy here.
+systemctl --user enable codex-dictate-proxy.service
+systemctl --user restart codex-dictate-proxy.service
 systemctl --user restart voxtype.service 2>/dev/null || c_y "  voxtype.service not started (start it once your session has it)."
 sleep 1
 c_g "  proxy:   $(systemctl --user is-active codex-dictate-proxy.service)"

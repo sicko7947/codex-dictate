@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Keep Voxtype's dynamic "default" capture away from Bluetooth SCO when a
+# wired input is available. The selector runs immediately before each
+# recording, so USB microphones can be replaced without changing this config.
+# If no non-Bluetooth input exists, leave the user's current default alone.
+
+set -u
+
+pactl_bin="${VOXTYPE_PACTL:-}"
+if [ -z "$pactl_bin" ]; then
+  pactl_bin="$(command -v pactl 2>/dev/null || true)"
+fi
+[ -n "$pactl_bin" ] || exit 0
+
+current="$($pactl_bin get-default-source 2>/dev/null || true)"
+sources="$($pactl_bin list short sources 2>/dev/null || true)"
+current_present="$(printf '%s\n' "$sources" | awk -v current="$current" '$2 == current { print "yes"; exit }')"
+case "$current" in
+  bluez_input.*) ;;
+  *) [ -n "$current_present" ] && exit 0 ;;
+esac
+
+safe_source="$(
+  printf '%s\n' "$sources" |
+    awk '
+      $2 !~ /\.monitor$/ && $2 ~ /^alsa_input\./ {
+        if ($2 ~ /^alsa_input\.usb\./ && usb == "") usb = $2
+        if (first == "") first = $2
+      }
+      END { print (usb != "" ? usb : first) }
+    '
+)"
+[ -n "$safe_source" ] || exit 0
+
+"$pactl_bin" set-default-source "$safe_source" >/dev/null 2>&1 || true
+exit 0

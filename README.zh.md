@@ -30,6 +30,18 @@
 - **macOS** 用户：完整步骤见 **[mac/README.md](mac/README.md)**；简版见下面的
   [macOS 快速开始](#macos-快速开始)。
 
+Linux 上 Voxtype 仍然负责快捷键、录音和 system-wide 粘贴。对符合条件的短 WAV
+录音，代理会尽量复刻 Codex Dictate：直接打开
+`/backend-api/dictation/stream` WebSocket，并使用同样的
+`chatgpt-dictation`、bearer token、`codex-desktop` 子协议，发送
+`session.start`、PCM16 的 `audio.append`，最后 `session.close` 等最终文本。
+Codex Desktop 的 connect-info 请求是在本地解析的，代理直接复刻它的结果。
+官方 streaming 会话限制为 30 秒；超过这个长度、输入不是 WAV，或者 streaming
+临时失败时，会自动回退到原来的 buffered `/transcribe`，不会让 Voxtype 直接失效。
+由于 Voxtype 是录音结束后才把完整文件交给代理，Linux 安装默认使用
+`CODEX_DICTATE_STREAMING=buffered` 以降低延迟；需要测试 WebSocket 路径时再改成
+`auto` 或 `streaming`。
+
 ---
 
 ## macOS 快速开始
@@ -201,6 +213,7 @@ Voxtype 的 `--eager-processing` 会**在你还在说话时就分块转写**（�
 | `CODEX_DICTATE_PROXY_PORT` | `8377` | 监听端口（同时要改 `remote_endpoint`） |
 | `CODEX_DICTATE_PROXY_HOST` | `127.0.0.1` | 监听地址（**保持本地！**） |
 | `CODEX_DICTATE_PROXY_TIMEOUT` | `900` | 上游转写超时（秒） |
+| `CODEX_DICTATE_STREAMING` | `buffered` | Voxtype 是录完后一次性交文件，`buffered` 最快；`auto` 在可用时走 Codex 风格 streaming、失败回退 buffered；`streaming` 禁止回退 |
 | `CODEX_DICTATE_PROXY_NO_NORMALIZE` | 未设 | 设为 `1` 关闭音量归一化 |
 | `CODEX_DICTATE_PROXY_DEBUG_DIR` | 未设 | 设成某目录（如 `/tmp`）会把实际发出的音频 dump 下来，方便排查 |
 
@@ -230,7 +243,7 @@ systemctl --user set-environment CODEX_DICTATE_PROXY_DEBUG_DIR=/tmp   # 或改 u
 | 转写返回 **HTTP 403** | ChatGPT token 没了/过期，或被 Cloudflare 挡。确认 Codex 已登录（`codex login`）；打开一次 Codex 应用刷新 token。 |
 | **HTTP 502** | 代理连不上 ChatGPT，或读不到 `~/.codex/auth.json`。看日志。 |
 | 句子接缝处文字乱 | `--eager-processing` 还开着——确认装了 `20-no-eager.conf`，并 `systemctl --user daemon-reload && systemctl --user restart voxtype.service`。 |
-| 声音小/漏词 | 蓝牙麦，或输入增益低。换有线麦；查 `pactl`。 |
+| 声音小/漏词 | 蓝牙麦，或输入增益低。换有线麦；查 `pactl`。当前 preset 的 `[audio].device` 保持为动态的 `default`；录音前只会在系统默认是 Bluetooth 时自动选择可用的有线 `alsa_input`，所以更换 USB 麦克风不需要改配置。 |
 | 不打字 | 需要 `wtype`（Wayland）或 `ydotool`，装一个。 |
 | 完全没反应 | 代理挂了（它随会话自启，但会话重启可能把它停掉）。`curl -s http://127.0.0.1:8377/` 没回应就是死了，`systemctl --user restart codex-dictate-proxy.service`。仓库里的单元用了 `Restart=always`，正常会自愈。 |
 | 出文字时乱触发快捷键(截图、计算器…) | wlroots 合成器会把 `type` 驱动注入的非 ASCII 合成按键也送进全局快捷键层。默认配置已规避：`config.toml` 用 `mode = "clipboard"` + `voxtype-paste-focus` 钩子,按焦点窗口粘贴(终端 Ctrl+Shift+V、其它 Ctrl+V)。确认装了 `~/.local/bin/voxtype-paste-focus` 且 `mode = "clipboard"`。 |

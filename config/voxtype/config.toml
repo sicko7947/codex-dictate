@@ -12,6 +12,9 @@ engine = "whisper"
 enabled = false
 
 [audio]
+# Keep this dynamic so replacing the USB microphone does not require a config
+# edit. The pre-recording hook moves a Bluetooth default to an available wired
+# input first, while leaving an already-selected non-Bluetooth input alone.
 device = "default"
 # Whisper consumes 16 kHz mono; leave this unless you know better.
 sample_rate = 16000
@@ -48,6 +51,9 @@ translate = false
 # combo (a modified key, bound to nothing) avoids that entirely.
 [output]
 mode = "clipboard"
+
+# Refresh the safe dynamic system input immediately before capture.
+pre_recording_command = "__HOME__/.local/bin/voxtype-select-input"
 
 # No keystroke fallback: if the paste hook fails the text still sits on the
 # clipboard for a manual paste — better than typing raw text and tripping binds.

@@ -31,6 +31,19 @@ The **proxy is shared across platforms**; only the *capture client* (hotkey + mi
 - **macOS** → see **[mac/README.md](mac/README.md)** for the full walkthrough; a
   short version is in [macOS quick start](#macos-quick-start) below.
 
+On Linux, Voxtype still owns the hotkey, microphone capture, and system-wide
+paste. For eligible short WAV recordings, the proxy now follows the same shape
+as Codex Dictate: it opens the `/backend-api/dictation/stream` WebSocket with
+the same `chatgpt-dictation`, bearer-token, and `codex-desktop` subprotocols,
+sends `session.start` plus PCM16 `audio.append` frames, and closes the session
+for the final transcript. Codex Desktop resolves its connect-info request
+locally; the proxy mirrors that result directly. The official streaming session
+is limited to 30 seconds; longer recordings, non-WAV input, or a temporary
+streaming failure automatically fall back to the existing buffered `/transcribe`
+request. Because Voxtype only hands over the complete file after recording
+stops, the installed Linux service defaults to `CODEX_DICTATE_STREAMING=buffered`
+for lower latency; set it to `auto` or `streaming` to exercise the WebSocket path.
+
 ---
 
 ## Why the proxy exists (the short version)
@@ -222,6 +235,7 @@ on macOS):
 | `CODEX_DICTATE_PROXY_HOST` | `127.0.0.1` | listen address (keep it local!) |
 | `CODEX_DICTATE_PROXY_TIMEOUT` | `900` | upstream timeout (seconds) |
 | `CODEX_DICTATE_BROWSER_UA` | macOS Chrome UA | browser user-agent sent to ChatGPT |
+| `CODEX_DICTATE_STREAMING` | `buffered` | `buffered` is fastest for Voxtype's complete-file handoff; `auto` uses Codex-style streaming when eligible with buffered fallback; `streaming` disables fallback |
 | `CODEX_DICTATE_PROXY_NO_NORMALIZE` | unset | set to `1` to disable loudness normalization |
 | `CODEX_DICTATE_PROXY_DEBUG_DIR` | unset | set to a dir (e.g. `/tmp`) to dump the exact audio sent, for debugging |
 
@@ -231,9 +245,12 @@ on macOS):
 [mac/README.md](mac/README.md).
 
 **Mic tip:** a wired/USB mic beats a Bluetooth headset for dictation by a wide
-margin — Bluetooth mics fall back to a narrowband, compressed profile. If accuracy
-is poor, check your input device first (Linux: `pactl list short sources`; macOS:
-System Settings → Sound → Input).
+margin — Bluetooth mics fall back to a narrowband, compressed profile. The
+installed preset keeps `[audio].device = "default"` so it follows device changes;
+its pre-recording hook only moves a Bluetooth default to an available wired
+`alsa_input` source, avoiding the known Bluetooth SCO failure without binding to
+one USB microphone. If accuracy is poor, check your input device first (Linux:
+`pactl list short sources`; macOS: System Settings → Sound → Input).
 
 ---
 

@@ -157,7 +157,12 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		writeJSON(w, 200, map[string]string{"status": "ok", "upstream": upstreamURL})
+		writeJSON(w, 200, map[string]string{
+			"status":           "ok",
+			"upstream":         upstreamURL,
+			"streaming":        streamMode(),
+			"stream_websocket": streamWebsocketURL,
+		})
 		return
 	}
 	if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "audio/transcriptions") {
@@ -227,6 +232,29 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if mode := streamMode(); mode != "buffered" {
+		pcm, sampleRate, eligible, prepErr := streamingAudio(fileBytes, fileCT, fileName, language)
+		if prepErr != nil {
+			if mode == "streaming" {
+				writeJSON(w, 502, map[string]string{"error": "streaming: " + prepErr.Error()})
+				return
+			}
+			log.Printf("[proxy] streaming unavailable; using buffered path: %v", prepErr)
+		} else if eligible {
+			text, streamErr := transcribeStreaming(r.Context(), pcm, sampleRate, token, accountID)
+			if streamErr == nil {
+				log.Printf("[proxy] streaming transcription completed sample_rate=%d pcm_bytes=%d text_chars=%d", sampleRate, len(pcm), len([]rune(text)))
+				writeJSON(w, http.StatusOK, map[string]string{"text": text})
+				return
+			}
+			if mode == "streaming" {
+				writeJSON(w, 502, map[string]string{"error": "streaming: " + streamErr.Error()})
+				return
+			}
+			log.Printf("[proxy] streaming failed; using buffered fallback: %v", streamErr)
+		}
+	}
+
 	// Rebuild a fresh multipart body for the upstream request.
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -264,18 +292,8 @@ func doUpstream(body []byte, contentType, token, accountID string) (*http.Respon
 			return nil, nil, err
 		}
 		req.Header.Set("Content-Type", contentType)
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("User-Agent", env("CODEX_DICTATE_BROWSER_UA", browserUA))
+		setChatGPTHeaders(req.Header, token, accountID)
 		req.Header.Set("Accept", "application/json, text/plain, */*")
-		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-		req.Header.Set("Origin", "https://chatgpt.com")
-		req.Header.Set("Referer", "https://chatgpt.com/")
-		req.Header.Set("sec-ch-ua", `"Google Chrome";v="149", "Chromium";v="149", "Not_A Brand";v="24"`)
-		req.Header.Set("sec-ch-ua-mobile", "?0")
-		req.Header.Set("sec-ch-ua-platform", `"macOS"`)
-		if accountID != "" {
-			req.Header.Set("chatgpt-account-id", accountID)
-		}
 
 		resp, err := httpClient.Do(req)
 		if err != nil {

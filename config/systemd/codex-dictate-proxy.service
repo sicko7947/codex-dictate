@@ -8,6 +8,10 @@ After=graphical-session.target
 Type=simple
 ExecStart=%h/.local/bin/codex-dictate-proxy
 Environment=CODEX_DICTATE_PROXY_TIMEOUT=900
+# Voxtype hands over a complete file after the hotkey is released, so the
+# lowest-latency path is the buffered request. Set this to auto/streaming only
+# when the capture client supplies live PCM frames.
+Environment=CODEX_DICTATE_STREAMING=buffered
 # Restart=always (not on-failure): this unit is PartOf=graphical-session.target,
 # so a session bounce (relogin, compositor restart) sends a clean SIGTERM. With
 # on-failure systemd treats that as a normal stop and does NOT revive it, leaving
